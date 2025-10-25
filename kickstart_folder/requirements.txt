@@ -1,0 +1,3 @@
+feetech-servo-sdk
+lerobot
+lerobot[feetech]
