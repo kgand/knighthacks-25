@@ -80,13 +80,51 @@ def __original_points_coords(point_list):
     return board_corners, square_corners
 
 
-def __layer(img):
+def __draw_points_on_original_image(image_object, points, layer_index):
+    """Draw points on the original image."""
+    if not debug.DEBUG or not points:
+        return
+
+    # Unscale points
+    from lc2fen.detectboard.image_object import image_scale
+    points_unscaled = image_scale(points, image_object.scale[layer_index])
+
+    if layer_index > 0:
+        ptslims = np.float32([[0, 0], [1200, 0], [1200, 1200], [0, 1200]])
+        transf_mats = []
+        for i in range(layer_index):
+            transf_mat = cv2.getPerspectiveTransform(
+                np.float32(image_object.points[i]), ptslims
+            )
+            cv2.invert(transf_mat, transf_mat)
+            transf_mats.append(transf_mat)
+
+        if transf_mats:
+            transf_mat = transf_mats[0]
+            for i in range(1, len(transf_mats)):
+                transf_mat = transf_mat.dot(transf_mats[i])
+
+            points_transformed = cv2.perspectiveTransform(
+                np.float32(points_unscaled).reshape(-1, 1, 2), transf_mat
+            )
+            points_transformed = [p[0] for p in points_transformed]
+        else:
+            points_transformed = points_unscaled
+    else:
+        points_transformed = points_unscaled
+
+    original_image = image_object.images[0]['orig']
+    debug.DebugImage(original_image).points(points_transformed, color=(255,0,255), size=5).save(f"laps_points_on_original_layer_{layer_index}")
+
+
+def __layer(img, layer_index):
     """Execute one layer (iteration) on the given image."""
     # Step 1 --- Straight line detector
     lines = slid(img["main"])
 
     # Step 2 --- Lattice points search
     points = laps(img["main"], lines)
+    __draw_points_on_original_image(img, points, layer_index)
 
     # Step 3 --- Chessboard position search
     four_points = cps(img["main"], points, lines)
@@ -135,7 +173,7 @@ def detect(
     n_layers = 3
     image = ImageObject(input_image)
     for i in range(n_layers):
-        __layer(image)
+        __layer(image, i)
         debug.DebugImage(image["orig"]).save(f"end_iteration{i}")
     cv2.imwrite(output_board, image["orig"])
 

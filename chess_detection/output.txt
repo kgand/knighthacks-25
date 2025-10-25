@@ -1,11 +1,23 @@
-TensorRT predictions
-[10/25/2025-16:21:53] [TRT] [E] createInferRuntime: Error Code 6: API Usage Error (CUDA initialization failure with error: 35 In nvinfer1::rt::`anonymous-namespace'::checkCudaInstallation at runtime/dispatch/runtime.cpp:689)
-[10/25/2025-16:21:53] [TRT] [E] [checkMacros.cpp::nvinfer1::catchCudaError::226] Error Code 1: Cuda Runtime (In nvinfer1::catchCudaError at common/dispatch/checkMacros.cpp:226)
+Enter the a1 square position (BL, BR, TL, TR): BR
+Enter the previous FEN (optional, press Enter to skip): 
+
+Processing...
+[ WARN:0@23.169] global loadsave.cpp:248 cv::findDecoder imread_('D:\Hackathons\Knighthacks\knighthacks-25\chess_detection\Chess2FEN\Test Data  est2.JPG'): can't open/read file: check file path/integrity
 Traceback (most recent call last):
-  File "D:\Hackathons\Knighthacks\knighthacks-25\chess_detection\LiveChess2FEN\test_lc2fen.py", line 64, in <module>
-    main_tensorrt()
-  File "D:\Hackathons\Knighthacks\knighthacks-25\chess_detection\LiveChess2FEN\test_lc2fen.py", line 55, in main_tensorrt
-    predict_board_trt(MODEL_PATH_TRT, IMG_SIZE_TRT, PRE_INPUT_TRT, test=True)
-  File "D:\Hackathons\Knighthacks\knighthacks-25\chess_detection\LiveChess2FEN\lc2fen\predict_board.py", line 330, in predict_board_trt
-    with open(model_path, "rb") as f, trt.Runtime(trt_logger) as runtime:
-TypeError: pybind11::init(): factory function returned nullptr
+  File "D:\Hackathons\Knighthacks\knighthacks-25\chess_detection\Chess2FEN\test_lc2fen_2.py", line 48, in <module>
+    main()
+  File "D:\Hackathons\Knighthacks\knighthacks-25\chess_detection\Chess2FEN\test_lc2fen_2.py", line 35, in main
+    fen, _ = predict_board_onnx(
+  File "D:\Hackathons\Knighthacks\knighthacks-25\chess_detection\Chess2FEN\lc2fen\predict_board.py", line 216, in predict_board_onnx
+    return predict_board(
+  File "D:\Hackathons\Knighthacks\knighthacks-25\chess_detection\Chess2FEN\lc2fen\predict_board.py", line 422, in predict_board
+    board_corners = detect_input_board(board_path, board_corners)
+  File "D:\Hackathons\Knighthacks\knighthacks-25\chess_detection\Chess2FEN\lc2fen\predict_board.py", line 579, in detect_input_board
+    image_object = detect(
+  File "D:\Hackathons\Knighthacks\knighthacks-25\chess_detection\Chess2FEN\lc2fen\detectboard\detect_board.py", line 176, in detect
+    __layer(image, i)
+  File "D:\Hackathons\Knighthacks\knighthacks-25\chess_detection\Chess2FEN\lc2fen\detectboard\detect_board.py", line 123, in __layer
+    lines = slid(img["main"])
+  File "D:\Hackathons\Knighthacks\knighthacks-25\chess_detection\Chess2FEN\lc2fen\detectboard\image_object.py", line 66, in __getitem__
+    return self.images[-1][attr]
+IndexError: list index out of range

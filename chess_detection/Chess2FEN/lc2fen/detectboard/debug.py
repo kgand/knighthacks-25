@@ -2,6 +2,7 @@
 
 
 import itertools
+import os
 from copy import copy
 from random import randint
 
@@ -9,7 +10,7 @@ import cv2
 import numpy as np
 
 
-DEBUG = False  # Set it to `True`/`False` to enable/disable debug images
+DEBUG = True  # Set it to `True`/`False` to enable/disable debug images
 COUNTER = itertools.count()
 DEBUG_SAVE_DIR = "data/boards/debug_steps/"
 
@@ -55,11 +56,13 @@ class DebugImage:
         """Save the image."""
         global COUNTER
         if DEBUG:
+            if not os.path.exists(DEBUG_SAVE_DIR):
+                os.makedirs(DEBUG_SAVE_DIR)
             if prefix:
                 __prefix = "__debug_" + "%04d" % int(next(COUNTER)) + "_"
             else:
                 __prefix = ""
 
             cv2.imwrite(
-                DEBUG_SAVE_DIR + __prefix + filename + ".jpg", self.img
+                os.path.join(DEBUG_SAVE_DIR, __prefix + filename + ".jpg"), self.img
             )
