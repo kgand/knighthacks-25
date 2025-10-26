@@ -20,7 +20,6 @@ Example formats ONLY (do NOT copy text outside JSON):\n
 """
 
 follower = SO101FollowerConfig(port="/dev/ttyACM1", id="my_awesome_leader_arm", calibration_dir=Path("/home/samuel/Documents/code/python/adk_1/calibration"))
-
 follower = SO101Follower(follower)
 
 config2 = SO101LeaderConfig(port="/dev/ttyACM0", id="my_awesome_leader_arm", calibration_dir=Path("/home/samuel/Documents/code/python/adk_1/calibration"))
