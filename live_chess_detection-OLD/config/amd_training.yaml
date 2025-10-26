@@ -1,0 +1,157 @@
+# AMD GPU Training Configuration
+# Optimized settings for ROCm-based training
+
+# Device Configuration
+device:
+  type: rocm  # Options: rocm, cuda, cpu
+  device_ids: [0]  # GPU indices to use
+  mixed_precision: true  # AMP for faster training
+  gradient_checkpointing: false  # Enable if OOM issues
+
+# Memory Settings (tuned for different AMD GPUs)
+memory:
+  # For AMD RX 7900 XTX (24GB)
+  rx7900xtx:
+    classifier_batch: 8
+    yolo_batch: 4
+    inception_batch: 12
+    num_workers: 8
+    pin_memory: true
+    prefetch_factor: 2
+  
+  # For AMD MI250X (128GB)
+  mi250x:
+    classifier_batch: 32
+    yolo_batch: 16
+    inception_batch: 48
+    num_workers: 16
+    pin_memory: true
+    prefetch_factor: 4
+  
+  # For AMD RX 6800 XT (16GB)
+  rx6800xt:
+    classifier_batch: 6
+    yolo_batch: 3
+    inception_batch: 10
+    num_workers: 6
+    pin_memory: true
+    prefetch_factor: 2
+
+# Active GPU profile (change based on your hardware)
+active_profile: rx7900xtx
+
+# Optimizer Settings
+optimizer:
+  classifier:
+    name: Adam
+    lr: 0.001
+    betas: [0.9, 0.999]
+    eps: 1e-08
+    weight_decay: 0.0001
+  
+  yolo:
+    name: AdamW
+    lr: 0.0001
+    momentum: 0.937
+    weight_decay: 0.0005
+  
+  inception:
+    name: Adam
+    lr: 0.001
+    weight_decay: 0.0001
+
+# Learning Rate Schedule
+scheduler:
+  name: ReduceLROnPlateau  # Options: ReduceLROnPlateau, CosineAnnealingLR, StepLR
+  mode: min
+  factor: 0.5
+  patience: 5
+  min_lr: 1e-7
+
+# Training Epochs
+epochs:
+  classifier: 5  # Base classifier trains quickly
+  yolo: 50
+  inception: 10  # Transfer learning converges fast
+
+# Image Sizes
+image_size:
+  classifier: 64  # Small squares for piece classification
+  yolo: 1024  # High res for detection
+  inception: 299  # InceptionV3 expects 299x299
+
+# Data Loading
+dataloader:
+  shuffle: true
+  drop_last: true  # Avoid irregular batch sizes
+  persistent_workers: true  # Keep workers alive between epochs
+
+# Gradient Accumulation
+# Simulates larger batches if memory limited
+gradient_accumulation:
+  enabled: false
+  steps: 2  # Effective batch = batch_size * steps
+
+# Monitoring
+monitoring:
+  log_interval: 50  # Log every N batches
+  checkpoint_interval: 5  # Save checkpoint every N epochs
+  validation_interval: 1  # Validate every N epochs
+  tensorboard: true
+  mlflow: true
+
+# Early Stopping
+early_stopping:
+  enabled: true
+  patience: 10
+  min_delta: 0.001
+
+# ROCm Specific Optimizations
+rocm_opts:
+  # Enable TF32 (if supported)
+  allow_tf32: true
+  
+  # Set deterministic algorithms (slower but reproducible)
+  deterministic: false
+  
+  # Benchmark mode (finds fastest algorithm)
+  benchmark: true
+  
+  # Memory management
+  empty_cache_interval: 100  # Clear cache every N batches
+  
+  # Environment variables (set these in shell)
+  env_vars:
+    PYTORCH_ROCM_ARCH: "gfx1030"  # Adjust for your GPU
+    HSA_OVERRIDE_GFX_VERSION: "10.3.0"
+    AMD_LOG_LEVEL: "1"  # 1=Error, 2=Warning, 3=Info
+
+# Profiling (disable during normal training)
+profiling:
+  enabled: false
+  wait_steps: 5
+  warmup_steps: 5
+  active_steps: 10
+  output_dir: logs/profiling
+
+# Checkpointing
+checkpoint:
+  save_best: true
+  save_last: true
+  save_interval: null  # Save every N epochs (null = only best/last)
+  max_keep: 3  # Keep only last N checkpoints
+
+# Logging
+logging:
+  level: INFO  # DEBUG, INFO, WARNING, ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  save_to_file: true
+  log_dir: logs/training
+
+# Notes on batch size tuning:
+# - Started with batch_size=16 for classifier, hit OOM on RX 7900 XTX
+# - Reduced to 8, training became stable
+# - YOLO needed batch_size=4 even with 1024px images
+# - Inception was more memory efficient, could use 12
+# - Increasing num_workers helped GPU utilization significantly
+# - Found 8 workers to be sweet spot for RX 7900 XTX (tested 4, 8, 12)

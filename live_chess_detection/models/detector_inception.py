@@ -1,386 +1,298 @@
 """
 InceptionV3-based chess piece detector.
 
-Alternative architecture for piece detection using InceptionV3
-as backbone with custom classification head.
+Implements object detection for chess pieces using InceptionV3 architecture
+with support for both PyTorch and TensorFlow backends.
 """
 
-import torch
-import torch.nn as nn
-import torchvision.models as models
-import torchvision.transforms as transforms
-from typing import Dict, List, Optional, Tuple
-import numpy as np
 import cv2
+import numpy as np
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Union
+
+try:
+    import torch
+    import torch.nn as nn
+    import torchvision.transforms as transforms
+    from torchvision.models import inception_v3
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    torch = None
+    nn = None
+    transforms = None
+    inception_v3 = None
+
+try:
+    import tensorflow as tf
+    from tensorflow.keras.applications import InceptionV3
+    from tensorflow.keras.applications.inception_v3 import preprocess_input
+    TF_AVAILABLE = True
+except ImportError:
+    TF_AVAILABLE = False
+    tf = None
+    InceptionV3 = None
+    preprocess_input = None
 
 
-class InceptionChessDetector(nn.Module):
+class InceptionChessDetector:
     """
     InceptionV3-based chess piece detector.
     
-    Uses InceptionV3 as backbone with custom detection head
-    for chess piece detection and classification.
+    Provides object detection capabilities for chess pieces
+    using InceptionV3 architecture with customizable backends.
     """
     
     def __init__(
         self,
-        num_classes: int = 12,  # 6 piece types * 2 colors
-        pretrained: bool = True,
-        dropout_rate: float = 0.5
+        model_path: Optional[Union[str, Path]] = None,
+        backend: str = "torch",
+        device: str = "auto",
+        confidence_threshold: float = 0.5,
+        input_size: Tuple[int, int] = (299, 299)
     ):
         """
-        Initialize InceptionV3 detector.
-        
-        Args:
-            num_classes: Number of piece classes
-            pretrained: Whether to use pretrained weights
-            dropout_rate: Dropout rate for regularization
-        """
-        super(InceptionChessDetector, self).__init__()
-        
-        # Load pretrained InceptionV3
-        self.backbone = models.inception_v3(pretrained=pretrained, aux_logits=False)
-        
-        # Get number of input features
-        num_features = self.backbone.fc.in_features
-        
-        # Replace classifier with detection head
-        self.backbone.fc = nn.Identity()  # Remove original classifier
-        
-        # Detection head
-        self.detection_head = nn.Sequential(
-            nn.Linear(num_features, 1024),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout_rate),
-            nn.Linear(1024, 512),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout_rate),
-            nn.Linear(512, num_classes)
-        )
-        
-        # Bounding box regression head
-        self.bbox_head = nn.Sequential(
-            nn.Linear(num_features, 512),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout_rate),
-            nn.Linear(512, 4)  # x, y, width, height
-        )
-        
-        # Confidence head
-        self.confidence_head = nn.Sequential(
-            nn.Linear(num_features, 256),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout_rate),
-            nn.Linear(256, 1),
-            nn.Sigmoid()
-        )
-        
-        self.num_classes = num_classes
-        self.class_names = {
-            0: 'white-king', 1: 'white-queen', 2: 'white-rook',
-            3: 'white-bishop', 4: 'white-knight', 5: 'white-pawn',
-            6: 'black-king', 7: 'black-queen', 8: 'black-rook',
-            9: 'black-bishop', 10: 'black-knight', 11: 'black-pawn'
-        }
-    
-    def forward(self, x):
-        """
-        Forward pass through the network.
-        
-        Args:
-            x: Input tensor (batch_size, 3, height, width)
-            
-        Returns:
-            Dictionary with predictions
-        """
-        # Extract features
-        features = self.backbone(x)
-        
-        # Get predictions
-        class_logits = self.detection_head(features)
-        bbox_regression = self.bbox_head(features)
-        confidence = self.confidence_head(features)
-        
-        return {
-            'class_logits': class_logits,
-            'bbox_regression': bbox_regression,
-            'confidence': confidence
-        }
-    
-    def predict(self, x: torch.Tensor, threshold: float = 0.5) -> Dict:
-        """
-        Make predictions on input tensor.
-        
-        Args:
-            x: Input tensor
-            threshold: Confidence threshold
-            
-        Returns:
-            Dictionary with predictions
-        """
-        self.eval()
-        with torch.no_grad():
-            outputs = self.forward(x)
-            
-            # Apply softmax to class logits
-            class_probs = torch.softmax(outputs['class_logits'], dim=1)
-            confidence = outputs['confidence']
-            
-            # Filter by confidence threshold
-            valid_indices = confidence.squeeze() > threshold
-            
-            if valid_indices.sum() > 0:
-                return {
-                    'class_probs': class_probs[valid_indices],
-                    'bbox_regression': outputs['bbox_regression'][valid_indices],
-                    'confidence': confidence[valid_indices],
-                    'class_names': self.class_names
-                }
-            else:
-                return {
-                    'class_probs': torch.empty(0, self.num_classes),
-                    'bbox_regression': torch.empty(0, 4),
-                    'confidence': torch.empty(0, 1),
-                    'class_names': self.class_names
-                }
-
-
-class InceptionChessDetectorWrapper:
-    """
-    Wrapper for InceptionV3 detector with preprocessing and postprocessing.
-    
-    Provides easy-to-use interface similar to YOLO detector.
-    """
-    
-    def __init__(
-        self,
-        model_path: Optional[str] = None,
-        conf_threshold: float = 0.45,
-        device: str = 'auto'
-    ):
-        """
-        Initialize detector wrapper.
+        Initialize Inception chess detector.
         
         Args:
             model_path: Path to trained model weights
-            conf_threshold: Confidence threshold
-            device: Device to use
+            backend: Backend to use ('torch' or 'tensorflow')
+            device: Device to run inference on
+            confidence_threshold: Minimum confidence for detections
+            input_size: Input image size (height, width)
         """
-        self.conf_threshold = conf_threshold
-        self.device = device if device != 'auto' else ('cuda' if torch.cuda.is_available() else 'cpu')
+        self.model_path = model_path
+        self.backend = backend
+        self.device = self._setup_device(device)
+        self.confidence_threshold = confidence_threshold
+        self.input_size = input_size
         
-        # Initialize model
-        self.model = InceptionChessDetector()
+        self.model = None
+        self.class_names = self._get_default_class_names()
         
-        # Load weights if provided
-        if model_path and torch.load(model_path, map_location=self.device):
-            self.model.load_state_dict(torch.load(model_path, map_location=self.device))
-            print(f"✅ Loaded model from {model_path}")
+        if model_path:
+            self.load_model(model_path)
+    
+    def _setup_device(self, device: str) -> str:
+        """Setup computation device."""
+        if device == "auto":
+            if TORCH_AVAILABLE and torch.cuda.is_available():
+                return "cuda"
+            else:
+                return "cpu"
+        return device
+    
+    def _get_default_class_names(self) -> List[str]:
+        """Get default chess piece class names."""
+        return [
+            'white_pawn', 'white_rook', 'white_knight', 'white_bishop', 'white_queen', 'white_king',
+            'black_pawn', 'black_rook', 'black_knight', 'black_bishop', 'black_queen', 'black_king'
+        ]
+    
+    def load_model(self, model_path: Union[str, Path]):
+        """
+        Load Inception model from file.
         
-        self.model.to(self.device)
-        self.model.eval()
+        Args:
+            model_path: Path to model file
+        """
+        model_path = Path(model_path)
+        if not model_path.exists():
+            raise FileNotFoundError(f"Model file not found: {model_path}")
         
-        # Setup preprocessing
-        self.transform = transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.Resize((299, 299)),  # InceptionV3 input size
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
+        if self.backend == "torch":
+            self._load_torch_model(model_path)
+        elif self.backend == "tensorflow":
+            self._load_tf_model(model_path)
+        else:
+            raise ValueError(f"Unsupported backend: {self.backend}")
+    
+    def _load_torch_model(self, model_path: Path):
+        """Load PyTorch model."""
+        if not TORCH_AVAILABLE:
+            raise ImportError("PyTorch is required for torch backend")
+        
+        try:
+            # Load model architecture
+            self.model = inception_v3(pretrained=False, num_classes=len(self.class_names))
+            
+            # Load weights
+            checkpoint = torch.load(model_path, map_location=self.device)
+            if 'model_state_dict' in checkpoint:
+                self.model.load_state_dict(checkpoint['model_state_dict'])
+            else:
+                self.model.load_state_dict(checkpoint)
+            
+            self.model.to(self.device)
+            self.model.eval()
+            
+        except Exception as e:
+            raise RuntimeError(f"Failed to load PyTorch model: {e}")
+    
+    def _load_tf_model(self, model_path: Path):
+        """Load TensorFlow model."""
+        if not TF_AVAILABLE:
+            raise ImportError("TensorFlow is required for tensorflow backend")
+        
+        try:
+            # Load model
+            self.model = tf.keras.models.load_model(str(model_path))
+            
+        except Exception as e:
+            raise RuntimeError(f"Failed to load TensorFlow model: {e}")
+    
+    def preprocess_image(self, image: np.ndarray) -> np.ndarray:
+        """
+        Preprocess image for Inception model.
+        
+        Args:
+            image: Input image
+            
+        Returns:
+            Preprocessed image
+        """
+        if self.backend == "torch":
+            return self._preprocess_torch(image)
+        elif self.backend == "tensorflow":
+            return self._preprocess_tf(image)
+        else:
+            raise ValueError(f"Unsupported backend: {self.backend}")
+    
+    def _preprocess_torch(self, image: np.ndarray) -> torch.Tensor:
+        """Preprocess image for PyTorch."""
+        # Convert BGR to RGB
+        if len(image.shape) == 3 and image.shape[2] == 3:
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        # Resize image
+        image = cv2.resize(image, self.input_size)
+        
+        # Convert to tensor
+        image = torch.from_numpy(image).float() / 255.0
+        
+        # Normalize for InceptionV3
+        mean = [0.485, 0.456, 0.406]
+        std = [0.229, 0.224, 0.225]
+        
+        for i in range(3):
+            image[:, :, i] = (image[:, :, i] - mean[i]) / std[i]
+        
+        # Add batch dimension and rearrange dimensions
+        image = image.permute(2, 0, 1).unsqueeze(0)
+        
+        return image.to(self.device)
+    
+    def _preprocess_tf(self, image: np.ndarray) -> np.ndarray:
+        """Preprocess image for TensorFlow."""
+        # Convert BGR to RGB
+        if len(image.shape) == 3 and image.shape[2] == 3:
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        # Resize image
+        image = cv2.resize(image, self.input_size)
+        
+        # Preprocess for InceptionV3
+        image = preprocess_input(image.astype(np.float32))
+        
+        # Add batch dimension
+        image = np.expand_dims(image, axis=0)
+        
+        return image
     
     def detect(
         self,
         image: np.ndarray,
-        img_size: int = 299,
-        visualize: bool = False
-    ) -> Dict:
+        return_probabilities: bool = False
+    ) -> Dict[str, Union[List[Dict], np.ndarray]]:
         """
-        Detect pieces in image.
+        Detect chess pieces in image.
         
         Args:
             image: Input image
-            img_size: Image size (ignored for InceptionV3)
-            visualize: Whether to return annotated image
+            return_probabilities: Whether to return class probabilities
             
         Returns:
-            Detection results
+            Dictionary containing detections and optional probabilities
         """
-        # Preprocess image
-        if len(image.shape) == 3 and image.shape[2] == 3:
-            # Convert BGR to RGB
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        if self.model is None:
+            raise RuntimeError("Model not loaded. Call load_model() first.")
         
-        # Apply transforms
-        input_tensor = self.transform(image).unsqueeze(0).to(self.device)
+        # Preprocess image
+        processed_image = self.preprocess_image(image)
         
         # Run inference
-        with torch.no_grad():
-            predictions = self.model.predict(input_tensor, self.conf_threshold)
+        if self.backend == "torch":
+            with torch.no_grad():
+                outputs = self.model(processed_image)
+                probabilities = torch.softmax(outputs, dim=1)
+                probabilities = probabilities.cpu().numpy()[0]
+        elif self.backend == "tensorflow":
+            probabilities = self.model.predict(processed_image)[0]
+        else:
+            raise ValueError(f"Unsupported backend: {self.backend}")
         
-        # Convert to numpy arrays
-        class_probs = predictions['class_probs'].cpu().numpy()
-        bbox_regression = predictions['bbox_regression'].cpu().numpy()
-        confidence = predictions['confidence'].cpu().numpy()
+        # Find detections above threshold
+        detections = []
+        for class_id, prob in enumerate(probabilities):
+            if prob >= self.confidence_threshold:
+                detection = {
+                    'class_id': class_id,
+                    'class_name': self.class_names[class_id] if class_id < len(self.class_names) else f'class_{class_id}',
+                    'confidence': float(prob)
+                }
+                detections.append(detection)
         
-        # Parse results
-        boxes = []
-        classes = []
-        confidences = []
-        
-        for i in range(len(class_probs)):
-            # Get class with highest probability
-            class_id = np.argmax(class_probs[i])
-            class_conf = class_probs[i][class_id]
-            
-            # Get bounding box (convert from regression to absolute coordinates)
-            bbox = bbox_regression[i]
-            x, y, w, h = bbox
-            
-            # Convert to corner format
-            x1 = max(0, x - w/2)
-            y1 = max(0, y - h/2)
-            x2 = min(image.shape[1], x + w/2)
-            y2 = min(image.shape[0], y + h/2)
-            
-            boxes.append([x1, y1, x2, y2])
-            classes.append(class_id)
-            confidences.append(float(class_conf))
-        
-        output = {
-            'boxes': np.array(boxes) if boxes else np.empty((0, 4)),
-            'classes': np.array(classes) if classes else np.empty((0,)),
-            'confidences': np.array(confidences) if confidences else np.empty((0,)),
-            'class_names': predictions['class_names']
+        result_dict = {
+            'detections': detections,
+            'num_detections': len(detections)
         }
         
-        if visualize:
-            # Draw boxes on image
-            vis_image = image.copy()
-            for box, cls, conf in zip(boxes, classes, confidences):
-                x1, y1, x2, y2 = map(int, box)
-                color = (0, 255, 0)  # Green
-                cv2.rectangle(vis_image, (x1, y1), (x2, y2), color, 2)
-                
-                # Add label
-                label = f"{predictions['class_names'].get(cls, cls)}: {conf:.2f}"
-                cv2.putText(vis_image, label, (x1, y1 - 10),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-            
-            output['image'] = vis_image
+        if return_probabilities:
+            result_dict['probabilities'] = probabilities
         
-        return output
+        return result_dict
     
-    def calculate_piece_centers(self, boxes: np.ndarray) -> np.ndarray:
+    def detect_pieces(
+        self,
+        image: np.ndarray,
+        filter_by_color: Optional[str] = None
+    ) -> List[Dict]:
         """
-        Calculate center points of detected pieces.
+        Detect chess pieces with optional color filtering.
         
         Args:
-            boxes: Bounding boxes array
+            image: Input image
+            filter_by_color: Filter by piece color ('white', 'black', None)
             
         Returns:
-            Center points array
+            List of piece detections
         """
-        if len(boxes) == 0:
-            return np.empty((0, 2))
+        results = self.detect(image)
+        detections = results['detections']
         
-        centers = []
-        for box in boxes:
-            x1, y1, x2, y2 = box
-            center_x = (x1 + x2) / 2
-            center_y = (y1 + y2) / 2
-            centers.append([center_x, center_y])
+        if filter_by_color:
+            filtered_detections = []
+            for detection in detections:
+                class_name = detection['class_name']
+                if filter_by_color == 'white' and class_name.startswith('white_'):
+                    filtered_detections.append(detection)
+                elif filter_by_color == 'black' and class_name.startswith('black_'):
+                    filtered_detections.append(detection)
+            return filtered_detections
         
-        return np.array(centers)
-
-
-def train_inception_detector(
-    train_loader,
-    val_loader,
-    num_epochs: int = 50,
-    learning_rate: float = 0.001,
-    device: str = 'auto',
-    save_path: str = 'models/inception/chess_detector.pth'
-):
-    """
-    Train InceptionV3 detector.
+        return detections
     
-    Args:
-        train_loader: Training data loader
-        val_loader: Validation data loader
-        num_epochs: Number of training epochs
-        learning_rate: Learning rate
-        device: Device to use
-        save_path: Path to save trained model
+    def get_model_info(self) -> Dict:
+        """Get model information."""
+        if self.model is None:
+            return {"status": "not_loaded"}
         
-    Returns:
-        Trained model
-    """
-    device = device if device != 'auto' else ('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    # Initialize model
-    model = InceptionChessDetector()
-    model.to(device)
-    
-    # Setup training
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
-    
-    # Training loop
-    for epoch in range(num_epochs):
-        model.train()
-        train_loss = 0.0
-        
-        for batch_idx, (data, target) in enumerate(train_loader):
-            data, target = data.to(device), target.to(device)
-            
-            optimizer.zero_grad()
-            outputs = model(data)
-            
-            # Calculate loss (simplified - would need proper loss function for detection)
-            loss = criterion(outputs['class_logits'], target)
-            loss.backward()
-            optimizer.step()
-            
-            train_loss += loss.item()
-        
-        scheduler.step()
-        
-        # Validation
-        model.eval()
-        val_loss = 0.0
-        correct = 0
-        total = 0
-        
-        with torch.no_grad():
-            for data, target in val_loader:
-                data, target = data.to(device), target.to(device)
-                outputs = model(data)
-                
-                val_loss += criterion(outputs['class_logits'], target).item()
-                _, predicted = torch.max(outputs['class_logits'], 1)
-                total += target.size(0)
-                correct += (predicted == target).sum().item()
-        
-        print(f'Epoch {epoch+1}/{num_epochs}: '
-              f'Train Loss: {train_loss/len(train_loader):.4f}, '
-              f'Val Loss: {val_loss/len(val_loader):.4f}, '
-              f'Val Acc: {100*correct/total:.2f}%')
-    
-    # Save model
-    torch.save(model.state_dict(), save_path)
-    print(f"✅ Model saved to {save_path}")
-    
-    return model
-
-
-if __name__ == "__main__":
-    # Test detector
-    detector = InceptionChessDetectorWrapper()
-    
-    # Create dummy image
-    test_img = np.random.randint(0, 255, (640, 640, 3), dtype=np.uint8)
-    
-    # Test detection
-    results = detector.detect(test_img)
-    print(f"Detected {len(results['boxes'])} pieces")
+        return {
+            "status": "loaded",
+            "backend": self.backend,
+            "device": self.device,
+            "confidence_threshold": self.confidence_threshold,
+            "input_size": self.input_size,
+            "class_names": self.class_names,
+            "num_classes": len(self.class_names)
+        }

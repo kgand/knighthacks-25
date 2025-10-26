@@ -1,0 +1,267 @@
+# Dataset Configuration
+
+# Data Paths
+paths:
+  root: data
+  synthetic: data/synthetic
+  roboflow: data/roboflow_chess
+  kaggle: data/kaggle_chess
+  youtube: data/youtube_extracted
+  output: data/processed
+
+# Dataset Sources and Weights
+sources:
+  synthetic:
+    enabled: true
+    weight: 0.35  # 35% of training data
+    path: ${paths.synthetic}
+    format: classification
+    description: "Programmatically generated chess positions"
+    
+  roboflow:
+    enabled: true
+    weight: 0.30  # 30% of training data
+    path: ${paths.roboflow}
+    format: yolo
+    api_key: null  # Set via environment variable ROBOFLOW_API_KEY
+    workspace: roboflow-100
+    project: chess-pieces-dataset
+    version: 2
+    description: "Roboflow Universe chess pieces dataset"
+    license: CC BY 4.0
+    
+  kaggle:
+    enabled: true
+    weight: 0.25  # 25% of training data
+    path: ${paths.kaggle}
+    format: mixed  # Images with position labels
+    dataset_id: koryakinp/chess-positions
+    description: "Kaggle chess position images"
+    license: CC0 / Public Domain
+    
+  youtube:
+    enabled: true
+    weight: 0.10  # 10% of training data
+    path: ${paths.youtube}
+    format: extracted
+    video_list: config/youtube_videos.txt
+    description: "Extracted frames from tournament videos"
+    license: Fair Use (Research/Educational)
+
+# Data Splits
+splits:
+  train: 0.70  # 70% training
+  val: 0.15    # 15% validation
+  test: 0.15   # 15% testing
+  
+  # Stratified split (maintain class distribution)
+  stratified: true
+  
+  # Random seed for reproducibility
+  seed: 42
+
+# Synthetic Dataset Generation
+synthetic_generation:
+  enabled: true
+  
+  # Chess.com API settings
+  api:
+    base_url: https://api.chess.com/pub
+    tournaments:
+      - titled-tuesday
+      - grand-prix
+      - championship
+    max_games: 500
+    time_control: [blitz, rapid]
+    
+  # Rendering settings
+  rendering:
+    image_size: 512
+    square_padding: 0.05  # 5% padding around pieces
+    
+    # Board color schemes
+    board_colors:
+      - [240, 217, 181, 181, 136, 99]    # Classic brown
+      - [238, 238, 210, 118, 150, 86]    # Green
+      - [222, 227, 230, 140, 162, 173]   # Blue
+      - [240, 217, 181, 181, 101, 52]    # Tournament brown
+      - [255, 255, 255, 128, 128, 128]   # Grayscale
+      - [235, 209, 166, 165, 117, 81]    # Wood
+      - [255, 228, 196, 139, 69, 19]     # Tan
+      - [245, 245, 245, 50, 50, 50]      # High contrast
+    
+    # Piece styles (paths relative to data/piece_images)
+    piece_styles:
+      - pieces/chesscom_standard
+      - pieces/wikipedia
+      - pieces/classic
+      - pieces/modern
+    
+    # Augmentation
+    augmentation:
+      blur:
+        enabled: true
+        sigma_range: [0, 2]  # Random Gaussian blur
+      brightness:
+        enabled: true
+        factor_range: [0.8, 1.2]
+      contrast:
+        enabled: true
+        factor_range: [0.85, 1.15]
+
+# Roboflow Dataset Download
+roboflow_download:
+  format: yolov8  # Download format
+  location: ${paths.roboflow}
+  preprocessing:
+    auto_orient: true
+    resize: 640
+
+# Kaggle Dataset Download
+kaggle_download:
+  dataset: ${sources.kaggle.dataset_id}
+  path: ${paths.kaggle}
+  unzip: true
+
+# YouTube Video Extraction
+youtube_extraction:
+  videos:
+    - id: rrPfmSWlAPM
+      title: "Grand Prix 2023"
+      time_range: ["0:02:30", "6:52:00"]
+      fps: 1  # Extract 1 frame per second
+      board_corners: [88, 558, 764, 1233]  # top, bottom, left, right
+      
+    - id: Jvv0Dom8vkc
+      title: "Titled Tuesday"
+      time_range: ["0:00:00", "8:44:00"]
+      fps: 0.25
+      board_corners: [62, 580, 726, 1243]
+      initial_position: custom  # Non-standard starting position
+  
+  extraction:
+    quality: high
+    stabilization: true  # Apply video stabilization
+    brightness_normalization: true
+
+# Data Augmentation (applied during training)
+augmentation:
+  # Geometric augmentations
+  geometric:
+    random_rotation:
+      enabled: true
+      degrees: [-10, 10]
+    random_flip:
+      horizontal: 0.5
+      vertical: 0.0  # Chess boards don't flip vertically
+    random_perspective:
+      enabled: false  # Top-down view, no perspective
+    random_crop:
+      enabled: false  # Need full board
+  
+  # Color augmentations
+  color:
+    random_brightness:
+      enabled: true
+      factor: [0.8, 1.2]
+    random_contrast:
+      enabled: true
+      factor: [0.85, 1.15]
+    random_saturation:
+      enabled: true
+      factor: [0.8, 1.2]
+    random_hue:
+      enabled: true
+      factor: [-0.05, 0.05]
+    color_jitter:
+      enabled: true
+      brightness: 0.2
+      contrast: 0.15
+      saturation: 0.15
+      hue: 0.05
+  
+  # Noise and blur
+  quality:
+    gaussian_blur:
+      enabled: true
+      sigma: [0.1, 2.0]
+    gaussian_noise:
+      enabled: true
+      mean: 0
+      std: 0.01
+    random_erasing:
+      enabled: false  # Can hide pieces
+
+# Normalization
+normalization:
+  mean: [0.485, 0.456, 0.406]  # ImageNet statistics
+  std: [0.229, 0.224, 0.225]
+
+# Class Labels
+classes:
+  names:
+    - "0"   # Empty square
+    - "B"   # White Bishop
+    - "K"   # White King
+    - "N"   # White Knight
+    - "P"   # White Pawn
+    - "Q"   # White Queen
+    - "R"   # White Rook
+    - "b"   # Black Bishop
+    - "k"   # Black King
+    - "n"   # Black Knight
+    - "p"   # Black Pawn
+    - "q"   # Black Queen
+    - "r"   # Black Rook
+  
+  # Map to integers
+  class2id:
+    "0": 0
+    "B": 1
+    "K": 2
+    "N": 3
+    "P": 4
+    "Q": 5
+    "R": 6
+    "b": 7
+    "k": 8
+    "n": 9
+    "p": 10
+    "q": 11
+    "r": 12
+
+# Data Loading
+dataloader:
+  num_workers: 8  # Adjust based on CPU cores
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
+
+# Caching
+cache:
+  enabled: true
+  cache_images: true  # Cache preprocessed images in RAM
+  cache_location: ${paths.root}/cache
+
+# Dataset Statistics (computed after loading)
+statistics:
+  compute_stats: true
+  save_stats: true
+  stats_file: ${paths.root}/dataset_stats.json
+
+# Quality Control
+quality_control:
+  min_image_size: [64, 64]
+  max_image_size: [4096, 4096]
+  valid_formats: [jpg, jpeg, png, bmp]
+  check_corruption: true
+  remove_duplicates: true
+
+# Notes on dataset mixing:
+# - Initial tests with only synthetic data didn't generalize well
+# - Adding Roboflow dataset improved real-world performance significantly
+# - Kaggle images added style diversity (wooden vs plastic pieces)
+# - YouTube data helps with tournament-specific conditions
+# - 35/30/25/10 split found through experimentation
+# - Tried 50/25/15/10 but synthetic dominated too much
+# - Current mix gives best validation accuracy (0.93 F1)

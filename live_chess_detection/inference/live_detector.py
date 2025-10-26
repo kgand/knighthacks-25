@@ -1,142 +1,147 @@
 """
-Live chess detection from webcam.
+Live chess piece detector for real-time detection.
 
-Real-time chess piece detection and board state tracking
-using computer vision and deep learning models.
+Implements real-time chess piece detection from webcam feed
+with frame stabilization and board mapping.
 """
 
 import cv2
 import numpy as np
-import chess
-from typing import Optional, Dict, List, Tuple
 import time
+from typing import Dict, List, Optional, Tuple, Union
+from pathlib import Path
 
-from models.detector_yolo import YOLOChessDetector
-from utils.chess_logic import ChessBoard
-from utils.video_utils import VideoCapture, stabilize_frame, detect_motion
-from utils.logger import get_global_logger
+from ..models.detector_yolo import YOLOChessDetector
+from ..models.detector_inception import InceptionChessDetector
+from ..utils.video_utils import VideoCapture
+from ..utils.logger import get_global_logger
 
 
 class LiveChessDetector:
     """
-    Real-time chess piece detection from webcam feed.
+    Live chess piece detector for real-time detection.
     
-    Handles frame capture, piece detection, board mapping,
-    and move validation using chess rules.
+    Provides real-time chess piece detection from webcam feed
+    with frame stabilization and board mapping capabilities.
     """
     
     def __init__(
         self,
-        model_path: str,
-        camera_id: int = 0,
-        conf_threshold: float = 0.45,
-        board_corners: Optional[np.ndarray] = None
+        detector_model: Union[str, Path, YOLOChessDetector, InceptionChessDetector],
+        camera_index: int = 0,
+        frame_stabilization: bool = True,
+        stabilization_threshold: float = 0.02,
+        min_detections: int = 3,
+        board_mapping: Optional[Dict] = None
     ):
         """
-        Initialize live detector.
+        Initialize live chess detector.
         
         Args:
-            model_path: Path to trained YOLO weights
-            camera_id: Webcam device ID
-            conf_threshold: Detection confidence threshold
-            board_corners: Predefined board corners (4x2 array)
+            detector_model: Detector model or path to model
+            camera_index: Camera index for webcam
+            frame_stabilization: Whether to use frame stabilization
+            stabilization_threshold: Threshold for frame stability
+            min_detections: Minimum detections for stable state
+            board_mapping: Board position mapping
         """
-        self.detector = YOLOChessDetector(
-            model_path=model_path,
-            conf_threshold=conf_threshold
-        )
+        self.camera_index = camera_index
+        self.frame_stabilization = frame_stabilization
+        self.stabilization_threshold = stabilization_threshold
+        self.min_detections = min_detections
+        self.board_mapping = board_mapping or self._get_default_board_mapping()
         
-        self.camera_id = camera_id
-        self.board = ChessBoard()  # Current game state
-        self.prev_frame = None
-        self.board_corners = board_corners
-        self.logger = get_global_logger()
-        
-        # Detection parameters
-        self.stability_threshold = 0.02
-        self.motion_threshold = 30.0
-        self.detection_interval = 5  # Detect every N frames
-        
-        # State tracking
-        self.frame_count = 0
-        self.last_detection_time = 0
-        self.detection_cooldown = 1.0  # Minimum time between detections
-        
-        # Board mapping
-        self.square_size = None
-        self.board_center = None
-    
-    def calibrate_board(self, frame: np.ndarray) -> bool:
-        """
-        Calibrate board position in frame.
-        
-        User clicks 4 corners to define board region.
-        This allows perspective correction for better detection.
-        
-        Args:
-            frame: Current frame for calibration
-            
-        Returns:
-            True if calibration successful
-        """
-        self.logger.log_info("Starting board calibration", "LiveDetector")
-        
-        # For now, use automatic corner detection
-        # In a real implementation, this would be interactive
-        corners = self._detect_board_corners(frame)
-        
-        if corners is not None:
-            self.board_corners = corners
-            self.logger.log_info(f"Board calibrated with corners: {corners}", "LiveDetector")
-            return True
+        # Initialize detector
+        if isinstance(detector_model, (YOLOChessDetector, InceptionChessDetector)):
+            self.detector = detector_model
         else:
-            self.logger.log_warning("Failed to detect board corners", "LiveDetector")
+            # Try to load as YOLO first, then Inception
+            try:
+                self.detector = YOLOChessDetector(str(detector_model))
+            except Exception:
+                try:
+                    self.detector = InceptionChessDetector(str(detector_model))
+                except Exception as e:
+                    raise RuntimeError(f"Failed to load detector model: {e}")
+        
+        # Initialize video capture
+        self.video_capture = None
+        self.previous_frame = None
+        self.detection_history = []
+        self.stable_detections = []
+        
+        # Initialize logger
+        self.logger = get_global_logger()
+    
+    def _get_default_board_mapping(self) -> Dict:
+        """Get default board position mapping."""
+        # This is a placeholder - in practice, you would calibrate this
+        # based on the actual board position in the camera view
+        return {
+            'a8': (100, 100), 'b8': (200, 100), 'c8': (300, 100), 'd8': (400, 100),
+            'e8': (500, 100), 'f8': (600, 100), 'g8': (700, 100), 'h8': (800, 100),
+            'a7': (100, 200), 'b7': (200, 200), 'c7': (300, 200), 'd7': (400, 200),
+            'e7': (500, 200), 'f7': (600, 200), 'g7': (700, 200), 'h7': (800, 200),
+            'a6': (100, 300), 'b6': (200, 300), 'c6': (300, 300), 'd6': (400, 300),
+            'e6': (500, 300), 'f6': (600, 300), 'g6': (700, 300), 'h6': (800, 300),
+            'a5': (100, 400), 'b5': (200, 400), 'c5': (300, 400), 'd5': (400, 400),
+            'e5': (500, 400), 'f5': (600, 400), 'g5': (700, 400), 'h5': (800, 400),
+            'a4': (100, 500), 'b4': (200, 500), 'c4': (300, 500), 'd4': (400, 500),
+            'e4': (500, 500), 'f4': (600, 500), 'g4': (700, 500), 'h4': (800, 500),
+            'a3': (100, 600), 'b3': (200, 600), 'c3': (300, 600), 'd3': (400, 600),
+            'e3': (500, 600), 'f3': (600, 600), 'g3': (700, 600), 'h3': (800, 600),
+            'a2': (100, 700), 'b2': (200, 700), 'c2': (300, 700), 'd2': (400, 700),
+            'e2': (500, 700), 'f2': (600, 700), 'g2': (700, 700), 'h2': (800, 700),
+            'a1': (100, 800), 'b1': (200, 800), 'c1': (300, 800), 'd1': (400, 800),
+            'e1': (500, 800), 'f1': (600, 800), 'g1': (700, 800), 'h1': (800, 800)
+        }
+    
+    def start_camera(self) -> bool:
+        """
+        Start camera capture.
+        
+        Returns:
+            True if camera started successfully
+        """
+        try:
+            self.video_capture = VideoCapture(self.camera_index)
+            if not self.video_capture.is_opened():
+                self.logger.log_error(Exception("Could not open camera"), "start_camera")
+                return False
+            
+            self.logger.log_info(f"Camera started: {self.camera_index}", "start_camera")
+            return True
+            
+        except Exception as e:
+            self.logger.log_error(e, "start_camera")
             return False
     
-    def _detect_board_corners(self, frame: np.ndarray) -> Optional[np.ndarray]:
+    def stop_camera(self):
+        """Stop camera capture."""
+        if self.video_capture:
+            self.video_capture.release()
+            self.video_capture = None
+            self.logger.log_info("Camera stopped", "stop_camera")
+    
+    def capture_frame(self) -> Optional[np.ndarray]:
         """
-        Automatically detect board corners.
+        Capture frame from camera.
         
-        Args:
-            frame: Input frame
-            
         Returns:
-            4x2 array of corner coordinates or None
+            Captured frame or None if failed
         """
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        
-        # Apply Gaussian blur
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        
-        # Apply Canny edge detection
-        edges = cv2.Canny(blurred, 50, 150)
-        
-        # Find contours
-        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        if not contours:
+        if not self.video_capture or not self.video_capture.is_opened():
             return None
         
-        # Find largest contour (likely the board)
-        largest_contour = max(contours, key=cv2.contourArea)
+        ret, frame = self.video_capture.read()
+        if not ret:
+            return None
         
-        # Approximate contour to polygon
-        epsilon = 0.02 * cv2.arcLength(largest_contour, True)
-        approx = cv2.approxPolyDP(largest_contour, epsilon, True)
-        
-        # Check if we have 4 corners
-        if len(approx) == 4:
-            corners = approx.reshape(4, 2)
-            return corners
-        
-        return None
+        return frame
     
     def is_frame_stable(self, current_frame: np.ndarray) -> bool:
         """
-        Check if frame is stable (no hand movement).
-        
-        Compares current frame to previous frame.
-        Only detect pieces when frame is stable to avoid false positives.
+        Check if frame is stable.
         
         Args:
             current_frame: Current frame
@@ -144,326 +149,214 @@ class LiveChessDetector:
         Returns:
             True if frame is stable
         """
-        if self.prev_frame is None:
-            self.prev_frame = current_frame.copy()
-            return False
-        
-        # Check for motion
-        has_motion, motion_mask = detect_motion(
-            current_frame, self.prev_frame, self.motion_threshold
-        )
-        
-        # Check for stability
-        is_stable, _ = stabilize_frame(
-            current_frame, self.prev_frame, self.stability_threshold
-        )
-        
-        self.prev_frame = current_frame.copy()
-        
-        return not has_motion and is_stable
-    
-    def map_pieces_to_board(self, detections: Dict) -> np.ndarray:
-        """
-        Map detected pieces to 8x8 board array.
-        
-        Uses piece center coordinates to determine which square.
-        Handles perspective correction if board corners are set.
-        
-        Args:
-            detections: Detection results from model
-            
-        Returns:
-            8x8 board array with piece symbols
-        """
-        board_array = np.full((8, 8), '.', dtype=object)
-        
-        if len(detections['boxes']) == 0:
-            return board_array
-        
-        # Calculate piece centers
-        centers = self.detector.calculate_piece_centers(detections['boxes'])
-        
-        # Map centers to board squares
-        for i, (center, class_id, confidence) in enumerate(zip(
-            centers, detections['classes'], detections['confidences']
-        )):
-            if confidence < self.conf_threshold:
-                continue
-            
-            # Convert center to board coordinates
-            square = self._center_to_square(center)
-            if square is not None:
-                # Get piece symbol from class
-                piece_symbol = self._class_to_piece_symbol(class_id)
-                if piece_symbol:
-                    row, col = square
-                    board_array[row, col] = piece_symbol
-        
-        return board_array
-    
-    def _center_to_square(self, center: np.ndarray) -> Optional[Tuple[int, int]]:
-        """
-        Convert piece center to board square coordinates.
-        
-        Args:
-            center: Piece center coordinates [x, y]
-            
-        Returns:
-            (row, col) coordinates or None if invalid
-        """
-        if self.board_corners is None:
-            # Simple grid division (assumes board fills most of frame)
-            h, w = self.prev_frame.shape[:2]
-            square_w = w / 8
-            square_h = h / 8
-            
-            col = int(center[0] / square_w)
-            row = int(center[1] / square_h)
-            
-            if 0 <= row < 8 and 0 <= col < 8:
-                return row, col
-        else:
-            # Perspective-corrected mapping
-            # This would require more complex geometric calculations
-            # For now, use simple approach
-            pass
-        
-        return None
-    
-    def _class_to_piece_symbol(self, class_id: int) -> Optional[str]:
-        """
-        Convert class ID to piece symbol.
-        
-        Args:
-            class_id: Model class ID
-            
-        Returns:
-            Piece symbol or None
-        """
-        piece_map = {
-            0: 'K', 1: 'Q', 2: 'R', 3: 'B', 4: 'N', 5: 'P',  # White pieces
-            6: 'k', 7: 'q', 8: 'r', 9: 'b', 10: 'n', 11: 'p'  # Black pieces
-        }
-        
-        return piece_map.get(class_id)
-    
-    def update_board_state(self, board_array: np.ndarray) -> bool:
-        """
-        Update internal board state from detected pieces.
-        
-        Args:
-            board_array: 8x8 array with piece symbols
-            
-        Returns:
-            True if board state was updated
-        """
-        # Convert array to FEN
-        fen = self._array_to_fen(board_array)
-        
-        # Validate FEN
-        if not self._validate_fen(fen):
-            return False
-        
-        # Update board
-        try:
-            self.board = ChessBoard(fen)
+        if not self.frame_stabilization or self.previous_frame is None:
             return True
-        except Exception as e:
-            self.logger.log_error(e, "BoardStateUpdate")
-            return False
+        
+        # Calculate frame difference
+        diff = cv2.absdiff(current_frame, self.previous_frame)
+        mean_diff = np.mean(diff) / 255.0
+        
+        return mean_diff < self.stabilization_threshold
     
-    def _array_to_fen(self, board_array: np.ndarray) -> str:
+    def detect_pieces(self, frame: np.ndarray) -> List[Dict]:
         """
-        Convert board array to FEN string.
-        
-        Args:
-            board_array: 8x8 array with piece symbols
-            
-        Returns:
-            FEN string
-        """
-        fen_rows = []
-        
-        for row in board_array:
-            fen_row = ""
-            empty_count = 0
-            
-            for piece in row:
-                if piece == '.':
-                    empty_count += 1
-                else:
-                    if empty_count > 0:
-                        fen_row += str(empty_count)
-                        empty_count = 0
-                    fen_row += piece
-            
-            if empty_count > 0:
-                fen_row += str(empty_count)
-            
-            fen_rows.append(fen_row)
-        
-        # Join rows with '/'
-        fen = '/'.join(fen_rows)
-        
-        # Add basic FEN components (simplified)
-        fen += " w - - 0 1"
-        
-        return fen
-    
-    def _validate_fen(self, fen: str) -> bool:
-        """
-        Validate FEN string.
-        
-        Args:
-            fen: FEN string to validate
-            
-        Returns:
-            True if FEN is valid
-        """
-        try:
-            chess.Board(fen)
-            return True
-        except Exception:
-            return False
-    
-    def detect_pieces(self, frame: np.ndarray) -> Dict:
-        """
-        Detect pieces in current frame.
+        Detect chess pieces in frame.
         
         Args:
             frame: Input frame
             
         Returns:
-            Detection results
+            List of piece detections
         """
-        start_time = time.time()
-        
-        # Run detection
-        detections = self.detector.detect(frame, visualize=True)
-        
-        # Map to board
-        board_array = self.map_pieces_to_board(detections)
-        
-        # Update board state
-        self.update_board_state(board_array)
-        
-        processing_time = time.time() - start_time
-        
-        # Log detection results
-        num_pieces = len(detections['boxes'])
-        avg_conf = np.mean(detections['confidences']) if num_pieces > 0 else 0
-        self.logger.log_detection(num_pieces, avg_conf, processing_time)
-        
-        return {
-            'detections': detections,
-            'board_array': board_array,
-            'board_fen': self.board.get_fen(),
-            'processing_time': processing_time
-        }
+        try:
+            results = self.detector.detect(frame)
+            detections = results['detections']
+            
+            # Add timestamp to detections
+            timestamp = time.time()
+            for detection in detections:
+                detection['timestamp'] = timestamp
+            
+            return detections
+            
+        except Exception as e:
+            self.logger.log_error(e, "detect_pieces")
+            return []
     
-    def run(self, max_frames: Optional[int] = None, show_video: bool = True):
+    def update_detection_history(self, detections: List[Dict]):
         """
-        Start live detection loop.
+        Update detection history for stabilization.
         
         Args:
-            max_frames: Stop after N frames (None = run forever)
-            show_video: Whether to display video window
+            detections: Current detections
         """
-        with VideoCapture(self.camera_id) as cap:
-            if not cap.is_opened():
-                self.logger.log_error(Exception(f"Failed to open camera {self.camera_id}"), "LiveDetector")
-                return
-            
-            self.logger.log_info("Starting live detection", "LiveDetector")
-            print("🎥 Starting live detection...")
-            print("Press 'q' to quit, 'c' to calibrate board")
-            
-            frame_count = 0
-            
-            try:
-                while True:
-                    ret, frame = cap.read()
-                    if not ret:
-                        break
-                    
-                    frame_count += 1
-                    if max_frames and frame_count >= max_frames:
-                        break
-                    
-                    # Check if frame is stable
-                    if not self.is_frame_stable(frame):
-                        if show_video:
-                            cv2.putText(
-                                frame, "Waiting for stable frame...",
-                                (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
-                                0.7, (0, 255, 255), 2
-                            )
-                            cv2.imshow('Chess Detection', frame)
-                            if cv2.waitKey(1) & 0xFF == ord('q'):
-                                break
-                        continue
-                    
-                    # Detect pieces
-                    results = self.detect_pieces(frame)
-                    
-                    # Display results
-                    if show_video:
-                        display_frame = results['detections']['image']
-                        
-                        # Add board state info
-                        cv2.putText(
-                            display_frame, f"Pieces: {len(results['detections']['boxes'])}",
-                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2
-                        )
-                        
-                        cv2.imshow('Chess Detection', display_frame)
-                    
-                    # Handle keyboard input
-                    if show_video:
-                        key = cv2.waitKey(1) & 0xFF
-                        if key == ord('q'):
-                            break
-                        elif key == ord('c'):
-                            self.calibrate_board(frame)
-            
-            finally:
-                if show_video:
-                    cv2.destroyAllWindows()
-                self.logger.log_info(f"Processed {frame_count} frames", "LiveDetector")
+        self.detection_history.append(detections)
+        
+        # Keep only recent history
+        max_history = 10
+        if len(self.detection_history) > max_history:
+            self.detection_history.pop(0)
     
-    def get_current_board(self) -> ChessBoard:
+    def get_stable_detections(self) -> List[Dict]:
         """
-        Get current board state.
+        Get stable detections from history.
         
         Returns:
-            Current ChessBoard instance
+            List of stable detections
         """
-        return self.board
+        if len(self.detection_history) < self.min_detections:
+            return []
+        
+        # Find detections that appear consistently
+        stable_detections = []
+        
+        # Group detections by position
+        position_groups = {}
+        for detections in self.detection_history:
+            for detection in detections:
+                center = detection['center']
+                # Find nearby detections
+                found_group = False
+                for pos, group in position_groups.items():
+                    if abs(center[0] - pos[0]) < 50 and abs(center[1] - pos[1]) < 50:
+                        group.append(detection)
+                        found_group = True
+                        break
+                
+                if not found_group:
+                    position_groups[center] = [detection]
+        
+        # Keep only groups with enough detections
+        for pos, group in position_groups.items():
+            if len(group) >= self.min_detections:
+                # Get the most recent detection from this group
+                latest_detection = max(group, key=lambda x: x['timestamp'])
+                stable_detections.append(latest_detection)
+        
+        return stable_detections
     
-    def get_board_fen(self) -> str:
+    def map_to_board_positions(self, detections: List[Dict]) -> Dict[str, Dict]:
         """
-        Get current board FEN.
+        Map detections to board positions.
+        
+        Args:
+            detections: List of detections
+            
+        Returns:
+            Dictionary mapping board positions to pieces
+        """
+        board_state = {}
+        
+        for detection in detections:
+            center = detection['center']
+            class_name = detection['class_name']
+            
+            # Find closest board position
+            min_distance = float('inf')
+            closest_position = None
+            
+            for position, coords in self.board_mapping.items():
+                distance = np.sqrt((center[0] - coords[0])**2 + (center[1] - coords[1])**2)
+                if distance < min_distance:
+                    min_distance = distance
+                    closest_position = position
+            
+            if closest_position and min_distance < 100:  # Within reasonable distance
+                board_state[closest_position] = {
+                    'piece': class_name,
+                    'confidence': detection['confidence'],
+                    'center': center
+                }
+        
+        return board_state
+    
+    def process_frame(self) -> Dict:
+        """
+        Process single frame for detection.
         
         Returns:
-            Current FEN string
+            Dictionary containing detection results
         """
-        return self.board.get_fen()
-
-
-if __name__ == "__main__":
-    import argparse
+        frame = self.capture_frame()
+        if frame is None:
+            return {'success': False, 'error': 'Failed to capture frame'}
+        
+        # Check frame stability
+        is_stable = self.is_frame_stable(frame)
+        if not is_stable:
+            self.previous_frame = frame
+            return {'success': False, 'error': 'Frame not stable'}
+        
+        # Detect pieces
+        detections = self.detect_pieces(frame)
+        
+        # Update history
+        self.update_detection_history(detections)
+        
+        # Get stable detections
+        stable_detections = self.get_stable_detections()
+        
+        # Map to board positions
+        board_state = self.map_to_board_positions(stable_detections)
+        
+        # Update previous frame
+        self.previous_frame = frame
+        
+        return {
+            'success': True,
+            'frame': frame,
+            'detections': detections,
+            'stable_detections': stable_detections,
+            'board_state': board_state,
+            'is_stable': is_stable
+        }
     
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--model', required=True, help='Path to trained model')
-    parser.add_argument('--camera', type=int, default=0, help='Camera ID')
-    parser.add_argument('--conf', type=float, default=0.45, help='Confidence threshold')
+    def run_detection_loop(self, max_frames: Optional[int] = None) -> List[Dict]:
+        """
+        Run detection loop for specified number of frames.
+        
+        Args:
+            max_frames: Maximum number of frames to process
+            
+        Returns:
+            List of detection results
+        """
+        if not self.start_camera():
+            return []
+        
+        results = []
+        frame_count = 0
+        
+        try:
+            while True:
+                if max_frames and frame_count >= max_frames:
+                    break
+                
+                result = self.process_frame()
+                results.append(result)
+                
+                if result['success']:
+                    self.logger.log_info(
+                        f"Frame {frame_count}: {len(result['detections'])} detections, "
+                        f"{len(result['stable_detections'])} stable",
+                        "run_detection_loop"
+                    )
+                
+                frame_count += 1
+                
+        except KeyboardInterrupt:
+            self.logger.log_info("Detection loop interrupted by user", "run_detection_loop")
+        finally:
+            self.stop_camera()
+        
+        return results
     
-    args = parser.parse_args()
-    
-    detector = LiveChessDetector(
-        model_path=args.model,
-        camera_id=args.camera,
-        conf_threshold=args.conf
-    )
-    
-    detector.run()
+    def get_detector_info(self) -> Dict:
+        """Get detector information."""
+        return {
+            'camera_index': self.camera_index,
+            'frame_stabilization': self.frame_stabilization,
+            'stabilization_threshold': self.stabilization_threshold,
+            'min_detections': self.min_detections,
+            'detector_info': self.detector.get_model_info() if hasattr(self.detector, 'get_model_info') else {}
+        }

@@ -1,430 +1,373 @@
 """
-Chess move validation and analysis.
+Move validator for chess position analysis.
 
-Validates detected moves against chess rules and provides
-move analysis and suggestions.
+Implements move validation, position analysis, and game state
+evaluation for chess positions.
 """
 
 import chess
 import numpy as np
 from typing import Dict, List, Optional, Tuple, Union
-from utils.chess_logic import ChessBoard, validate_fen, get_piece_color
-from utils.logger import get_global_logger
+from pathlib import Path
+
+from ..utils.chess_logic import ChessBoard, calculate_material_balance
+from ..utils.logger import get_global_logger
 
 
 class MoveValidator:
     """
-    Validates chess moves and analyzes board positions.
+    Move validator for chess position analysis.
     
-    Provides move validation, position analysis, and
-    move suggestion functionality.
+    Provides move validation, position analysis, and game state
+    evaluation for chess positions.
     """
     
-    def __init__(self):
-        """Initialize move validator."""
-        self.logger = get_global_logger()
-        self.board = ChessBoard()
+    def __init__(
+        self,
+        position_history: Optional[List[str]] = None,
+        max_history: int = 100
+    ):
+        """
+        Initialize move validator.
         
-        # Move validation parameters
-        self.max_move_distance = 2  # Maximum squares a piece can move
-        self.min_confidence = 0.7   # Minimum confidence for move validation
+        Args:
+            position_history: History of previous positions
+            max_history: Maximum number of positions to keep in history
+        """
+        self.position_history = position_history or []
+        self.max_history = max_history
+        
+        # Initialize logger
+        self.logger = get_global_logger()
     
     def validate_move(
         self,
+        fen: str,
         move_uci: str,
-        board_fen: str,
-        confidence: float = 1.0
-    ) -> Dict:
+        previous_fen: Optional[str] = None
+    ) -> Dict[str, Union[bool, str, Dict]]:
         """
         Validate a chess move.
         
         Args:
-            move_uci: Move in UCI format (e.g., 'e2e4')
-            board_fen: Current board FEN
-            confidence: Move confidence score
+            fen: Current position FEN
+            move_uci: Move in UCI format
+            previous_fen: Previous position FEN (optional)
             
         Returns:
-            Validation results
+            Dictionary containing validation results
         """
         try:
-            # Load board state
-            self.board = ChessBoard(board_fen)
+            # Create chess board from FEN
+            chess_board = ChessBoard(fen)
             
             # Check if move is legal
-            is_legal = self.board.is_valid_move(move_uci)
+            is_legal = chess_board.is_valid_move(move_uci)
             
             if not is_legal:
                 return {
-                    'valid': False,
+                    'is_valid': False,
                     'reason': 'Illegal move',
-                    'suggestions': self._get_move_suggestions()
+                    'legal_moves': self._get_legal_moves(chess_board),
+                    'move': move_uci
                 }
             
-            # Check move confidence
-            if confidence < self.min_confidence:
+            # Make the move
+            move_success = chess_board.make_move(move_uci)
+            
+            if not move_success:
                 return {
-                    'valid': False,
-                    'reason': f'Low confidence: {confidence:.3f}',
-                    'suggestions': self._get_move_suggestions()
+                    'is_valid': False,
+                    'reason': 'Move execution failed',
+                    'legal_moves': self._get_legal_moves(chess_board),
+                    'move': move_uci
                 }
+            
+            # Get new position
+            new_fen = chess_board.get_fen()
             
             # Check for special conditions
-            special_conditions = self._check_special_conditions(move_uci)
+            special_conditions = self._check_special_conditions(chess_board)
+            
+            # Analyze position
+            position_analysis = self._analyze_position(chess_board)
+            
+            # Update history
+            self._update_position_history(new_fen)
             
             return {
-                'valid': True,
+                'is_valid': True,
                 'move': move_uci,
-                'confidence': confidence,
+                'new_fen': new_fen,
                 'special_conditions': special_conditions,
-                'board_after': self._get_board_after_move(move_uci)
+                'position_analysis': position_analysis,
+                'game_result': chess_board.get_game_result()
             }
             
         except Exception as e:
-            self.logger.log_error(e, "MoveValidation")
+            self.logger.log_error(e, "validate_move")
             return {
-                'valid': False,
+                'is_valid': False,
                 'reason': f'Validation error: {str(e)}',
-                'suggestions': []
+                'move': move_uci
             }
     
-    def _check_special_conditions(self, move_uci: str) -> Dict:
+    def _get_legal_moves(self, chess_board: ChessBoard) -> List[str]:
         """
-        Check for special move conditions.
+        Get list of legal moves from current position.
         
         Args:
-            move_uci: Move in UCI format
+            chess_board: Chess board instance
             
-        Returns:
-            Dictionary with special conditions
-        """
-        conditions = {
-            'is_castling': False,
-            'is_en_passant': False,
-            'is_promotion': False,
-            'is_capture': False,
-            'is_check': False,
-            'is_checkmate': False
-        }
-        
-        try:
-            move = chess.Move.from_uci(move_uci)
-            
-            # Check for castling
-            if self.board.is_castling(move):
-                conditions['is_castling'] = True
-            
-            # Check for en passant
-            if self.board.is_en_passant(move):
-                conditions['is_en_passant'] = True
-            
-            # Check for promotion
-            if move.promotion:
-                conditions['is_promotion'] = True
-            
-            # Check for capture
-            if self.board.is_capture(move):
-                conditions['is_capture'] = True
-            
-            # Make move and check for check/checkmate
-            self.board.push(move)
-            if self.board.is_check():
-                conditions['is_check'] = True
-            if self.board.is_checkmate():
-                conditions['is_checkmate'] = True
-            self.board.pop()
-            
-        except Exception as e:
-            self.logger.log_warning(f"Error checking special conditions: {e}", "MoveValidator")
-        
-        return conditions
-    
-    def _get_board_after_move(self, move_uci: str) -> str:
-        """
-        Get board state after move.
-        
-        Args:
-            move_uci: Move in UCI format
-            
-        Returns:
-            FEN string after move
-        """
-        try:
-            move = chess.Move.from_uci(move_uci)
-            self.board.push(move)
-            fen = self.board.fen()
-            self.board.pop()
-            return fen
-        except Exception:
-            return self.board.fen()
-    
-    def _get_move_suggestions(self) -> List[str]:
-        """
-        Get legal move suggestions.
-        
         Returns:
             List of legal moves in UCI format
         """
-        legal_moves = list(self.board.legal_moves)
-        return [move.uci() for move in legal_moves[:10]]  # Return first 10 moves
+        legal_moves = []
+        for move in chess_board.board.legal_moves:
+            legal_moves.append(move.uci())
+        return legal_moves
     
-    def analyze_position(self, board_fen: str) -> Dict:
+    def _check_special_conditions(self, chess_board: ChessBoard) -> Dict[str, bool]:
         """
-        Analyze current board position.
+        Check for special chess conditions.
         
         Args:
-            board_fen: Board FEN string
+            chess_board: Chess board instance
             
         Returns:
-            Position analysis
+            Dictionary of special conditions
         """
-        try:
-            self.board = ChessBoard(board_fen)
-            
-            analysis = {
-                'is_check': self.board.is_check(),
-                'is_checkmate': self.board.is_checkmate(),
-                'is_stalemate': self.board.is_stalemate(),
-                'is_game_over': self.board.is_game_over(),
-                'legal_moves': len(list(self.board.legal_moves)),
-                'material_balance': self._calculate_material_balance(),
-                'position_evaluation': self._evaluate_position()
-            }
-            
-            return analysis
-            
-        except Exception as e:
-            self.logger.log_error(e, "PositionAnalysis")
-            return {
-                'error': str(e),
-                'is_game_over': False,
-                'legal_moves': 0
-            }
-    
-    def _calculate_material_balance(self) -> int:
-        """
-        Calculate material balance.
-        
-        Returns:
-            Material balance (positive = white advantage)
-        """
-        piece_values = {
-            'P': 1, 'N': 3, 'B': 3, 'R': 5, 'Q': 9, 'K': 0,
-            'p': -1, 'n': -3, 'b': -3, 'r': -5, 'q': -9, 'k': 0
+        return {
+            'is_check': chess_board.board.is_check(),
+            'is_checkmate': chess_board.board.is_checkmate(),
+            'is_stalemate': chess_board.board.is_stalemate(),
+            'is_insufficient_material': chess_board.board.is_insufficient_material(),
+            'is_seventyfive_moves': chess_board.board.is_seventyfive_moves(),
+            'is_fivefold_repetition': chess_board.board.is_fivefold_repetition()
         }
-        
-        balance = 0
-        for square in chess.SQUARES:
-            piece = self.board.piece_at(square)
-            if piece:
-                balance += piece_values.get(piece.symbol(), 0)
-        
-        return balance
     
-    def _evaluate_position(self) -> str:
+    def _analyze_position(self, chess_board: ChessBoard) -> Dict[str, Union[int, float, List]]:
+        """
+        Analyze current position.
+        
+        Args:
+            chess_board: Chess board instance
+            
+        Returns:
+            Dictionary containing position analysis
+        """
+        # Calculate material balance
+        material_balance = calculate_material_balance(chess_board)
+        
+        # Count pieces by type
+        piece_counts = {}
+        for piece in chess_board.board.piece_map().values():
+            symbol = piece.symbol()
+            piece_counts[symbol] = piece_counts.get(symbol, 0) + 1
+        
+        # Count pieces by color
+        white_pieces = sum(1 for piece in chess_board.board.piece_map().values() if piece.symbol().isupper())
+        black_pieces = sum(1 for piece in chess_board.board.piece_map().values() if piece.symbol().islower())
+        
+        # Get legal moves count
+        legal_moves_count = len(list(chess_board.board.legal_moves))
+        
+        # Check for pins and skewers
+        pins = self._find_pins(chess_board)
+        skewers = self._find_skewers(chess_board)
+        
+        # Calculate position evaluation
+        evaluation = self._evaluate_position(chess_board)
+        
+        return {
+            'material_balance': material_balance,
+            'piece_counts': piece_counts,
+            'white_pieces': white_pieces,
+            'black_pieces': black_pieces,
+            'legal_moves_count': legal_moves_count,
+            'pins': pins,
+            'skewers': skewers,
+            'evaluation': evaluation
+        }
+    
+    def _find_pins(self, chess_board: ChessBoard) -> List[Dict]:
+        """
+        Find pinned pieces.
+        
+        Args:
+            chess_board: Chess board instance
+            
+        Returns:
+            List of pinned pieces
+        """
+        pins = []
+        board = chess_board.board
+        
+        for square in chess.SQUARES:
+            piece = board.piece_at(square)
+            if piece is None:
+                continue
+            
+            # Check if piece is pinned
+            if board.is_pinned(chess_board.board.turn, square):
+                pins.append({
+                    'square': chess.square_name(square),
+                    'piece': piece.symbol(),
+                    'color': 'white' if piece.symbol().isupper() else 'black'
+                })
+        
+        return pins
+    
+    def _find_skewers(self, chess_board: ChessBoard) -> List[Dict]:
+        """
+        Find skewered pieces.
+        
+        Args:
+            chess_board: Chess board instance
+            
+        Returns:
+            List of skewered pieces
+        """
+        # This is a simplified implementation
+        # In practice, you would implement more sophisticated skewer detection
+        skewers = []
+        
+        # Check for discovered attacks
+        for square in chess.SQUARES:
+            piece = chess_board.board.piece_at(square)
+            if piece is None:
+                continue
+            
+            # Check if piece can attack through another piece
+            # This is a placeholder - actual skewer detection is more complex
+            pass
+        
+        return skewers
+    
+    def _evaluate_position(self, chess_board: ChessBoard) -> float:
         """
         Evaluate position strength.
         
+        Args:
+            chess_board: Chess board instance
+            
         Returns:
-            Position evaluation string
+            Position evaluation score
         """
-        material_balance = self._calculate_material_balance()
+        # Simple material-based evaluation
+        material_balance = calculate_material_balance(chess_board)
         
-        if material_balance > 3:
-            return "White has significant advantage"
-        elif material_balance > 1:
-            return "White has slight advantage"
-        elif material_balance < -3:
-            return "Black has significant advantage"
-        elif material_balance < -1:
-            return "Black has slight advantage"
-        else:
-            return "Position is roughly equal"
+        # Add mobility bonus
+        legal_moves = len(list(chess_board.board.legal_moves))
+        mobility_bonus = legal_moves * 0.1
+        
+        # Add center control bonus
+        center_control = self._calculate_center_control(chess_board)
+        
+        # Add king safety bonus
+        king_safety = self._calculate_king_safety(chess_board)
+        
+        evaluation = material_balance + mobility_bonus + center_control + king_safety
+        
+        return evaluation
     
-    def detect_move_from_boards(
-        self,
-        previous_board: np.ndarray,
-        current_board: np.ndarray
-    ) -> Optional[str]:
+    def _calculate_center_control(self, chess_board: ChessBoard) -> float:
         """
-        Detect move from board state changes.
+        Calculate center control score.
         
         Args:
-            previous_board: Previous board array
-            current_board: Current board array
+            chess_board: Chess board instance
             
         Returns:
-            Detected move in UCI format or None
+            Center control score
         """
-        # Find differences between boards
-        differences = []
+        center_squares = [chess.E4, chess.D4, chess.E5, chess.D5]
+        center_control = 0.0
         
-        for row in range(8):
-            for col in range(8):
-                prev_piece = previous_board[row, col]
-                curr_piece = current_board[row, col]
-                
-                if prev_piece != curr_piece:
-                    differences.append({
-                        'square': (row, col),
-                        'from': prev_piece,
-                        'to': curr_piece
-                    })
+        for square in center_squares:
+            piece = chess_board.board.piece_at(square)
+            if piece is not None:
+                if piece.symbol().isupper():
+                    center_control += 1.0
+                else:
+                    center_control -= 1.0
         
-        if len(differences) == 0:
-            return None
-        
-        # Simple move detection logic
-        # This would require more sophisticated analysis
-        if len(differences) == 2:
-            # Likely a move
-            from_square = None
-            to_square = None
-            
-            for diff in differences:
-                if diff['from'] != '.' and diff['to'] == '.':
-                    from_square = self._coords_to_square(diff['square'])
-                elif diff['from'] == '.' and diff['to'] != '.':
-                    to_square = self._coords_to_square(diff['square'])
-            
-            if from_square and to_square:
-                return f"{from_square}{to_square}"
-        
-        return None
+        return center_control
     
-    def _coords_to_square(self, coords: Tuple[int, int]) -> str:
+    def _calculate_king_safety(self, chess_board: ChessBoard) -> float:
         """
-        Convert coordinates to square notation.
+        Calculate king safety score.
         
         Args:
-            coords: (row, col) coordinates
+            chess_board: Chess board instance
             
         Returns:
-            Square notation (e.g., 'e4')
+            King safety score
         """
-        row, col = coords
-        square_index = (7 - row) * 8 + col
-        return chess.square_name(square_index)
+        # Simplified king safety calculation
+        # In practice, this would be more sophisticated
+        king_safety = 0.0
+        
+        # Check if kings are in check
+        if chess_board.board.is_check():
+            if chess_board.board.turn:
+                king_safety -= 2.0  # White king in check
+            else:
+                king_safety += 2.0  # Black king in check
+        
+        return king_safety
     
-    def get_best_moves(self, board_fen: str, depth: int = 3) -> List[Dict]:
+    def _update_position_history(self, fen: str):
         """
-        Get best moves for current position.
+        Update position history.
         
         Args:
-            board_fen: Board FEN string
-            depth: Search depth
-            
-        Returns:
-            List of best moves with evaluations
+            fen: FEN string to add to history
         """
-        try:
-            self.board = ChessBoard(board_fen)
-            legal_moves = list(self.board.legal_moves)
-            
-            # Simple evaluation (would use engine in real implementation)
-            best_moves = []
-            
-            for move in legal_moves[:10]:  # Limit to first 10 moves
-                # Make move
-                self.board.push(move)
-                
-                # Evaluate position
-                evaluation = self._evaluate_position()
-                
-                # Undo move
-                self.board.pop()
-                
-                best_moves.append({
-                    'move': move.uci(),
-                    'evaluation': evaluation,
-                    'is_capture': self.board.is_capture(move),
-                    'is_check': self.board.gives_check(move)
-                })
-            
-            # Sort by evaluation (simplified)
-            best_moves.sort(key=lambda x: x['evaluation'], reverse=True)
-            
-            return best_moves[:5]  # Return top 5 moves
-            
-        except Exception as e:
-            self.logger.log_error(e, "BestMoves")
-            return []
+        self.position_history.append(fen)
+        
+        # Keep only recent history
+        if len(self.position_history) > self.max_history:
+            self.position_history.pop(0)
     
-    def validate_board_state(self, board_fen: str) -> Dict:
+    def detect_position_repetition(self, fen: str) -> Dict[str, Union[bool, int, List]]:
         """
-        Validate board state for legality.
+        Detect position repetition.
         
         Args:
-            board_fen: Board FEN string
+            fen: FEN string to check
             
         Returns:
-            Validation results
+            Dictionary containing repetition information
         """
-        try:
-            self.board = ChessBoard(board_fen)
-            
-            # Check for basic validity
-            is_valid = True
-            errors = []
-            
-            # Check for multiple kings
-            white_kings = sum(1 for square in chess.SQUARES 
-                            if self.board.piece_at(square) == chess.Piece(chess.KING, chess.WHITE))
-            black_kings = sum(1 for square in chess.SQUARES 
-                            if self.board.piece_at(square) == chess.Piece(chess.KING, chess.BLACK))
-            
-            if white_kings != 1:
-                is_valid = False
-                errors.append(f"Invalid number of white kings: {white_kings}")
-            
-            if black_kings != 1:
-                is_valid = False
-                errors.append(f"Invalid number of black kings: {black_kings}")
-            
-            # Check for impossible piece counts
-            piece_counts = self._count_pieces()
-            for piece, count in piece_counts.items():
-                if count > 8:  # Maximum pieces per type
-                    is_valid = False
-                    errors.append(f"Too many {piece} pieces: {count}")
-            
-            return {
-                'valid': is_valid,
-                'errors': errors,
-                'board': self.board
-            }
-            
-        except Exception as e:
-            return {
-                'valid': False,
-                'errors': [f"Invalid FEN: {str(e)}"],
-                'board': None
-            }
-    
-    def _count_pieces(self) -> Dict[str, int]:
-        """
-        Count pieces on board.
+        # Count occurrences of current position
+        position_count = self.position_history.count(fen)
         
-        Returns:
-            Dictionary with piece counts
-        """
-        counts = {}
-        for square in chess.SQUARES:
-            piece = self.board.piece_at(square)
-            if piece:
-                symbol = piece.symbol()
-                counts[symbol] = counts.get(symbol, 0) + 1
+        # Find all occurrences
+        occurrences = []
+        for i, pos in enumerate(self.position_history):
+            if pos == fen:
+                occurrences.append(i)
         
-        return counts
-
-
-if __name__ == "__main__":
-    # Test move validator
-    validator = MoveValidator()
+        return {
+            'is_repeated': position_count > 1,
+            'repetition_count': position_count,
+            'occurrences': occurrences,
+            'total_positions': len(self.position_history)
+        }
     
-    # Test move validation
-    result = validator.validate_move('e2e4', chess.STARTING_FEN)
-    print(f"Move validation result: {result}")
+    def get_position_history(self) -> List[str]:
+        """Get position history."""
+        return self.position_history.copy()
     
-    # Test position analysis
-    analysis = validator.analyze_position(chess.STARTING_FEN)
-    print(f"Position analysis: {analysis}")
+    def clear_position_history(self):
+        """Clear position history."""
+        self.position_history.clear()
+    
+    def get_validator_info(self) -> Dict:
+        """Get validator information."""
+        return {
+            'position_history_length': len(self.position_history),
+            'max_history': self.max_history,
+            'has_history': len(self.position_history) > 0
+        }

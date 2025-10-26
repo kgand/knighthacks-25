@@ -1,273 +1,205 @@
 """
-Board state prediction and validation.
+Board state predictor for chess position analysis.
 
-Predicts chess board state from detected pieces and validates
-the resulting position for legality.
+Implements board state prediction from detected pieces
+with FEN generation and position validation.
 """
 
 import numpy as np
-import chess
 from typing import Dict, List, Optional, Tuple, Union
-from utils.chess_logic import ChessBoard, validate_fen, get_piece_color
-from utils.logger import get_global_logger
+from pathlib import Path
+
+from ..utils.chess_logic import ChessBoard, validate_fen, square_to_coords, coords_to_square
+from ..utils.logger import get_global_logger
 
 
 class BoardPredictor:
     """
-    Predicts chess board state from detected pieces.
+    Board state predictor for chess position analysis.
     
-    Handles piece detection results and converts them to
-    valid chess board positions.
+    Provides board state prediction from detected pieces
+    with FEN generation and position validation.
     """
     
-    def __init__(self, confidence_threshold: float = 0.5):
+    def __init__(
+        self,
+        board_size: int = 8,
+        piece_mapping: Optional[Dict[str, str]] = None,
+        confidence_threshold: float = 0.5
+    ):
         """
         Initialize board predictor.
         
         Args:
-            confidence_threshold: Minimum confidence for piece detection
+            board_size: Size of chess board (default 8x8)
+            piece_mapping: Mapping from detected classes to FEN symbols
+            confidence_threshold: Minimum confidence for piece placement
         """
+        self.board_size = board_size
         self.confidence_threshold = confidence_threshold
+        self.piece_mapping = piece_mapping or self._get_default_piece_mapping()
+        
+        # Initialize logger
         self.logger = get_global_logger()
-        
-        # Piece class mapping
-        self.piece_classes = {
-            0: 'K', 1: 'Q', 2: 'R', 3: 'B', 4: 'N', 5: 'P',  # White
-            6: 'k', 7: 'q', 8: 'r', 9: 'b', 10: 'n', 11: 'p'  # Black
-        }
-        
-        # Expected piece counts for standard position
-        self.expected_counts = {
-            'K': 1, 'Q': 1, 'R': 2, 'B': 2, 'N': 2, 'P': 8,  # White
-            'k': 1, 'q': 1, 'r': 2, 'b': 2, 'n': 2, 'p': 8   # Black
+    
+    def _get_default_piece_mapping(self) -> Dict[str, str]:
+        """Get default piece mapping to FEN symbols."""
+        return {
+            'white_pawn': 'P', 'white_rook': 'R', 'white_knight': 'N',
+            'white_bishop': 'B', 'white_queen': 'Q', 'white_king': 'K',
+            'black_pawn': 'p', 'black_rook': 'r', 'black_knight': 'n',
+            'black_bishop': 'b', 'black_queen': 'q', 'black_king': 'k'
         }
     
     def predict_board_state(
         self,
-        detections: Dict,
-        board_corners: Optional[np.ndarray] = None
-    ) -> Dict:
+        detections: List[Dict],
+        board_positions: Dict[str, Tuple[int, int]]
+    ) -> Dict[str, Union[str, Dict, List]]:
         """
-        Predict board state from piece detections.
+        Predict board state from detections.
         
         Args:
-            detections: Detection results from model
-            board_corners: Board corner coordinates for perspective correction
+            detections: List of piece detections
+            board_positions: Mapping of board positions to coordinates
             
         Returns:
-            Dictionary with predicted board state
+            Dictionary containing board state information
         """
-        if len(detections['boxes']) == 0:
-            return self._create_empty_board()
-        
-        # Extract piece information
-        pieces = self._extract_piece_info(detections)
-        
-        # Map pieces to board squares
-        board_array = self._map_pieces_to_squares(pieces, board_corners)
-        
-        # Validate and correct board state
-        corrected_board = self._validate_and_correct_board(board_array)
-        
-        # Convert to FEN
-        fen = self._board_array_to_fen(corrected_board)
-        
-        # Validate FEN
-        if not validate_fen(fen):
-            self.logger.log_warning("Invalid FEN generated", "BoardPredictor")
-            return self._create_empty_board()
-        
-        return {
-            'board_array': corrected_board,
-            'fen': fen,
-            'pieces_detected': len(pieces),
-            'confidence': self._calculate_board_confidence(pieces)
-        }
-    
-    def _extract_piece_info(self, detections: Dict) -> List[Dict]:
-        """
-        Extract piece information from detections.
-        
-        Args:
-            detections: Detection results
+        try:
+            # Create empty board
+            board = np.full((self.board_size, self.board_size), '.', dtype=object)
+            piece_confidence = np.zeros((self.board_size, self.board_size))
             
-        Returns:
-            List of piece dictionaries
-        """
-        pieces = []
-        
-        for i in range(len(detections['boxes'])):
-            if detections['confidences'][i] < self.confidence_threshold:
-                continue
+            # Place pieces on board
+            placed_pieces = 0
+            for detection in detections:
+                if self._place_piece_on_board(detection, board, piece_confidence, board_positions):
+                    placed_pieces += 1
             
-            box = detections['boxes'][i]
-            class_id = detections['classes'][i]
-            confidence = detections['confidences'][i]
+            # Generate FEN from board
+            fen = self._board_to_fen(board)
             
-            # Calculate piece center
-            x1, y1, x2, y2 = box
-            center_x = (x1 + x2) / 2
-            center_y = (y2 - (y2 - y1) / 3)  # 1/3 up from bottom
+            # Validate FEN
+            is_valid = validate_fen(fen)
             
-            piece = {
-                'class_id': class_id,
-                'piece_symbol': self.piece_classes.get(class_id, '?'),
-                'confidence': confidence,
-                'center': (center_x, center_y),
-                'bbox': box
+            # Get board statistics
+            stats = self._get_board_statistics(board, piece_confidence)
+            
+            return {
+                'success': True,
+                'fen': fen,
+                'is_valid': is_valid,
+                'board': board,
+                'piece_confidence': piece_confidence,
+                'placed_pieces': placed_pieces,
+                'total_detections': len(detections),
+                'statistics': stats
             }
             
-            pieces.append(piece)
-        
-        return pieces
+        except Exception as e:
+            self.logger.log_error(e, "predict_board_state")
+            return {
+                'success': False,
+                'error': str(e),
+                'fen': None,
+                'is_valid': False
+            }
     
-    def _map_pieces_to_squares(
+    def _place_piece_on_board(
         self,
-        pieces: List[Dict],
-        board_corners: Optional[np.ndarray] = None
-    ) -> np.ndarray:
+        detection: Dict,
+        board: np.ndarray,
+        piece_confidence: np.ndarray,
+        board_positions: Dict[str, Tuple[int, int]]
+    ) -> bool:
         """
-        Map pieces to board squares.
+        Place piece on board based on detection.
         
         Args:
-            pieces: List of detected pieces
-            board_corners: Board corner coordinates
+            detection: Piece detection
+            board: Board array
+            piece_confidence: Confidence array
+            board_positions: Board position mapping
             
         Returns:
-            8x8 board array
+            True if piece was placed successfully
         """
-        board_array = np.full((8, 8), '.', dtype=object)
+        if detection['confidence'] < self.confidence_threshold:
+            return False
         
-        if board_corners is not None:
-            # Perspective-corrected mapping
-            board_array = self._map_with_perspective(pieces, board_corners)
+        class_name = detection['class_name']
+        if class_name not in self.piece_mapping:
+            return False
+        
+        fen_symbol = self.piece_mapping[class_name]
+        center = detection['center']
+        
+        # Find closest board position
+        closest_position = self._find_closest_board_position(center, board_positions)
+        if not closest_position:
+            return False
+        
+        # Convert position to board coordinates
+        row, col = square_to_coords(closest_position)
+        
+        # Check if position is already occupied
+        if board[row, col] != '.':
+            # If confidence is higher, replace the piece
+            if detection['confidence'] > piece_confidence[row, col]:
+                board[row, col] = fen_symbol
+                piece_confidence[row, col] = detection['confidence']
+                return True
+            else:
+                return False
         else:
-            # Simple grid mapping
-            board_array = self._map_simple_grid(pieces)
-        
-        return board_array
+            board[row, col] = fen_symbol
+            piece_confidence[row, col] = detection['confidence']
+            return True
     
-    def _map_simple_grid(self, pieces: List[Dict]) -> np.ndarray:
-        """
-        Simple grid-based piece mapping.
-        
-        Args:
-            pieces: List of detected pieces
-            
-        Returns:
-            8x8 board array
-        """
-        board_array = np.full((8, 8), '.', dtype=object)
-        
-        # Assume board fills most of the frame
-        # This is a simplified approach
-        for piece in pieces:
-            center_x, center_y = piece['center']
-            
-            # Simple grid division
-            col = int(center_x / 100)  # Adjust based on frame size
-            row = int(center_y / 100)
-            
-            if 0 <= row < 8 and 0 <= col < 8:
-                board_array[row, col] = piece['piece_symbol']
-        
-        return board_array
-    
-    def _map_with_perspective(
+    def _find_closest_board_position(
         self,
-        pieces: List[Dict],
-        board_corners: np.ndarray
-    ) -> np.ndarray:
+        center: Tuple[int, int],
+        board_positions: Dict[str, Tuple[int, int]]
+    ) -> Optional[str]:
         """
-        Perspective-corrected piece mapping.
+        Find closest board position to piece center.
         
         Args:
-            pieces: List of detected pieces
-            board_corners: Board corner coordinates
+            center: Piece center coordinates
+            board_positions: Board position mapping
             
         Returns:
-            8x8 board array
+            Closest board position or None
         """
-        board_array = np.full((8, 8), '.', dtype=object)
+        min_distance = float('inf')
+        closest_position = None
         
-        # Calculate perspective transform
-        # This would require more complex geometric calculations
-        # For now, use simplified approach
+        for position, coords in board_positions.items():
+            distance = np.sqrt((center[0] - coords[0])**2 + (center[1] - coords[1])**2)
+            if distance < min_distance:
+                min_distance = distance
+                closest_position = position
         
-        for piece in pieces:
-            center_x, center_y = piece['center']
-            
-            # Map to board coordinates using perspective correction
-            # This is a placeholder - real implementation would use
-            # proper perspective transformation
-            col = int(center_x / 100)
-            row = int(center_y / 100)
-            
-            if 0 <= row < 8 and 0 <= col < 8:
-                board_array[row, col] = piece['piece_symbol']
+        # Only return if within reasonable distance
+        if min_distance < 100:  # Adjust threshold as needed
+            return closest_position
         
-        return board_array
+        return None
     
-    def _validate_and_correct_board(self, board_array: np.ndarray) -> np.ndarray:
-        """
-        Validate and correct board state.
-        
-        Args:
-            board_array: 8x8 board array
-            
-        Returns:
-            Corrected board array
-        """
-        corrected_board = board_array.copy()
-        
-        # Check for duplicate pieces on same square
-        for row in range(8):
-            for col in range(8):
-                if corrected_board[row, col] != '.':
-                    # Check if there are multiple pieces on this square
-                    # This would require more sophisticated logic
-                    pass
-        
-        # Check for impossible piece counts
-        piece_counts = self._count_pieces(corrected_board)
-        for piece, count in piece_counts.items():
-            if count > self.expected_counts.get(piece, 0):
-                self.logger.log_warning(f"Too many {piece} pieces detected: {count}", "BoardPredictor")
-        
-        return corrected_board
-    
-    def _count_pieces(self, board_array: np.ndarray) -> Dict[str, int]:
-        """
-        Count pieces on board.
-        
-        Args:
-            board_array: 8x8 board array
-            
-        Returns:
-            Dictionary with piece counts
-        """
-        counts = {}
-        for row in range(8):
-            for col in range(8):
-                piece = board_array[row, col]
-                if piece != '.':
-                    counts[piece] = counts.get(piece, 0) + 1
-        
-        return counts
-    
-    def _board_array_to_fen(self, board_array: np.ndarray) -> str:
+    def _board_to_fen(self, board: np.ndarray) -> str:
         """
         Convert board array to FEN string.
         
         Args:
-            board_array: 8x8 board array
+            board: Board array
             
         Returns:
             FEN string
         """
         fen_rows = []
         
-        for row in board_array:
+        for row in board:
             fen_row = ""
             empty_count = 0
             
@@ -288,144 +220,132 @@ class BoardPredictor:
         # Join rows with '/'
         fen = '/'.join(fen_rows)
         
-        # Add basic FEN components
-        fen += " w - - 0 1"
+        # Add additional FEN components (simplified)
+        fen += " w - - 0 1"  # Default: white to move, no castling, no en passant, move 1
         
         return fen
     
-    def _calculate_board_confidence(self, pieces: List[Dict]) -> float:
-        """
-        Calculate overall board confidence.
-        
-        Args:
-            pieces: List of detected pieces
-            
-        Returns:
-            Average confidence score
-        """
-        if not pieces:
-            return 0.0
-        
-        confidences = [piece['confidence'] for piece in pieces]
-        return np.mean(confidences)
-    
-    def _create_empty_board(self) -> Dict:
-        """
-        Create empty board state.
-        
-        Returns:
-            Empty board dictionary
-        """
-        return {
-            'board_array': np.full((8, 8), '.', dtype=object),
-            'fen': '8/8/8/8/8/8/8/8 w - - 0 1',
-            'pieces_detected': 0,
-            'confidence': 0.0
-        }
-    
-    def compare_boards(
+    def _get_board_statistics(
         self,
-        board1: np.ndarray,
-        board2: np.ndarray
-    ) -> Dict:
+        board: np.ndarray,
+        piece_confidence: np.ndarray
+    ) -> Dict[str, Union[int, float, List]]:
         """
-        Compare two board states.
+        Get board statistics.
         
         Args:
-            board1: First board array
-            board2: Second board array
+            board: Board array
+            piece_confidence: Confidence array
             
         Returns:
-            Comparison results
+            Dictionary containing board statistics
         """
-        differences = []
+        # Count pieces by type
+        piece_counts = {}
+        for piece in board.flatten():
+            if piece != '.':
+                piece_counts[piece] = piece_counts.get(piece, 0) + 1
         
-        for row in range(8):
-            for col in range(8):
-                piece1 = board1[row, col]
-                piece2 = board2[row, col]
-                
-                if piece1 != piece2:
-                    differences.append({
-                        'square': (row, col),
-                        'from': piece1,
-                        'to': piece2
+        # Count pieces by color
+        white_pieces = sum(1 for piece in board.flatten() if piece.isupper() and piece != '.')
+        black_pieces = sum(1 for piece in board.flatten() if piece.islower() and piece != '.')
+        
+        # Calculate average confidence
+        occupied_positions = piece_confidence > 0
+        avg_confidence = np.mean(piece_confidence[occupied_positions]) if np.any(occupied_positions) else 0.0
+        
+        # Find low confidence pieces
+        low_confidence_pieces = []
+        for row in range(self.board_size):
+            for col in range(self.board_size):
+                if board[row, col] != '.' and piece_confidence[row, col] < 0.7:
+                    position = coords_to_square(row, col)
+                    low_confidence_pieces.append({
+                        'position': position,
+                        'piece': board[row, col],
+                        'confidence': piece_confidence[row, col]
                     })
         
         return {
-            'differences': differences,
-            'num_differences': len(differences),
-            'is_same': len(differences) == 0
+            'total_pieces': white_pieces + black_pieces,
+            'white_pieces': white_pieces,
+            'black_pieces': black_pieces,
+            'piece_counts': piece_counts,
+            'average_confidence': float(avg_confidence),
+            'low_confidence_pieces': low_confidence_pieces,
+            'occupied_squares': int(np.sum(board != '.'))
         }
     
-    def detect_moves(
-        self,
-        previous_board: np.ndarray,
-        current_board: np.ndarray
-    ) -> List[Dict]:
+    def validate_board_state(self, fen: str) -> Dict[str, Union[bool, str, List]]:
         """
-        Detect moves between board states.
+        Validate board state for chess rules.
         
         Args:
-            previous_board: Previous board state
-            current_board: Current board state
+            fen: FEN string to validate
             
         Returns:
-            List of detected moves
+            Dictionary containing validation results
         """
-        comparison = self.compare_boards(previous_board, current_board)
-        moves = []
-        
-        if comparison['num_differences'] == 0:
-            return moves
-        
-        # Simple move detection
-        # This would require more sophisticated logic for real implementation
-        for diff in comparison['differences']:
-            square = diff['square']
-            from_piece = diff['from']
-            to_piece = diff['to']
+        try:
+            # Create chess board from FEN
+            chess_board = ChessBoard(fen)
             
-            if from_piece != '.' and to_piece == '.':
-                # Piece was removed
-                moves.append({
-                    'type': 'capture',
-                    'from': square,
-                    'to': None,
-                    'piece': from_piece
-                })
-            elif from_piece == '.' and to_piece != '.':
-                # Piece was added
-                moves.append({
-                    'type': 'place',
-                    'from': None,
-                    'to': square,
-                    'piece': to_piece
-                })
-            elif from_piece != '.' and to_piece != '.':
-                # Piece moved
-                moves.append({
-                    'type': 'move',
-                    'from': square,
-                    'to': square,
-                    'piece': to_piece
-                })
-        
-        return moves
-
-
-if __name__ == "__main__":
-    # Test board predictor
-    predictor = BoardPredictor()
+            # Check basic validity
+            is_valid = chess_board.board.is_valid()
+            
+            # Check for impossible positions
+            issues = []
+            
+            # Check king counts
+            white_kings = sum(1 for piece in chess_board.board.piece_map().values() if piece.symbol() == 'K')
+            black_kings = sum(1 for piece in chess_board.board.piece_map().values() if piece.symbol() == 'k')
+            
+            if white_kings != 1:
+                issues.append(f"Invalid white king count: {white_kings}")
+            if black_kings != 1:
+                issues.append(f"Invalid black king count: {black_kings}")
+            
+            # Check pawn positions
+            for square, piece in chess_board.board.piece_map().items():
+                row = 7 - (square // 8)
+                if piece.symbol().lower() == 'p':
+                    if row == 0 or row == 7:  # Pawns on first/last rank
+                        issues.append(f"Pawn on invalid rank: {chess.square_name(square)}")
+            
+            # Check for check
+            is_check = chess_board.board.is_check()
+            
+            # Check for checkmate
+            is_checkmate = chess_board.board.is_checkmate()
+            
+            # Check for stalemate
+            is_stalemate = chess_board.board.is_stalemate()
+            
+            return {
+                'is_valid': is_valid and len(issues) == 0,
+                'is_check': is_check,
+                'is_checkmate': is_checkmate,
+                'is_stalemate': is_stalemate,
+                'issues': issues,
+                'fen': fen
+            }
+            
+        except Exception as e:
+            self.logger.log_error(e, "validate_board_state")
+            return {
+                'is_valid': False,
+                'is_check': False,
+                'is_checkmate': False,
+                'is_stalemate': False,
+                'issues': [f"FEN parsing error: {str(e)}"],
+                'fen': fen
+            }
     
-    # Create dummy detections
-    detections = {
-        'boxes': np.array([[100, 100, 200, 200], [300, 300, 400, 400]]),
-        'classes': np.array([0, 6]),  # White king, black king
-        'confidences': np.array([0.9, 0.8])
-    }
-    
-    # Predict board state
-    result = predictor.predict_board_state(detections)
-    print(f"Predicted board state: {result['fen']}")
-    print(f"Confidence: {result['confidence']:.3f}")
+    def get_predictor_info(self) -> Dict:
+        """Get predictor information."""
+        return {
+            'board_size': self.board_size,
+            'confidence_threshold': self.confidence_threshold,
+            'piece_mapping': self.piece_mapping,
+            'num_piece_types': len(self.piece_mapping)
+        }
