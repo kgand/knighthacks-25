@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Dependencies
 node_modules/
 npm-debug.log*
@@ -84,3 +85,7 @@ temp/
 *.rar
 kgand-*.txt
 *DISCOVERY*.md
+=======
+__pycache__
+.env
+>>>>>>> old_a/main
