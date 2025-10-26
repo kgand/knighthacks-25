@@ -6,15 +6,14 @@ import {
   Bot, 
   User, 
   Loader2, 
+  Sparkles, 
   MessageSquare, 
   Trash2,
   Settings,
   Zap,
   Brain,
   Network,
-  Cpu,
-  ChevronDown,
-  ChevronUp
+  Cpu
 } from "lucide-react";
 
 interface ChatMessage {
@@ -161,13 +160,17 @@ export function AdvancedChatPanel() {
   return (
     <div className="rounded-2xl bg-zinc-950 shadow-soft ring-1 ring-white/10 flex flex-col h-96">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-white/10 px-3 py-2 text-sm">
-        <div className="font-medium">Chat</div>
+      <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+        <div className="flex items-center gap-3">
+          <MessageSquare className="size-5 text-fuchsia-400" />
+          <h3 className="font-semibold">A2A Chat Interface</h3>
+        </div>
+        
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowSettings(!showSettings)}
             className="rounded-lg p-1.5 hover:bg-zinc-800 transition-colors"
-            title="Agent Settings"
+            title="Settings"
           >
             <Settings className="size-4" />
           </button>
