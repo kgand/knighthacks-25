@@ -6,6 +6,7 @@ import { CameraWall } from "@/components/chessops/CameraWall";
 import { DebugWorkbench } from "@/components/chessops/DebugWorkbench/PipelineTabs";
 import { AgentObservatory } from "@/components/chessops/Agents/AgentObservatory";
 import { ChatPanel } from "@/components/chessops/Chat/ChatPanel";
+import { CameraInitializer } from "@/components/chessops/CameraInitializer";
 import { featureEnabled } from "@/lib/featureFlags";
 
 export default function ChessOpsPage() {
@@ -15,6 +16,7 @@ export default function ChessOpsPage() {
 
   return (
     <div className="flex h-dvh flex-col">
+      <CameraInitializer />
       <TopBar />
       <div className="grid grid-cols-12 gap-3 p-3">
         <div className="col-span-12 xl:col-span-4 space-y-3">
