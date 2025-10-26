@@ -9,7 +9,6 @@ import type {
   PipelineFrameEvent,
   AgentEvent,
   CameraFeed,
-  ChatMessage,
   AgentMetadata,
   ConversationThread,
 } from "../types";
@@ -172,27 +171,27 @@ export const mockCameraFeeds: Record<string, CameraFeed> = {
 /**
  * Mock chat messages
  */
-export const mockChatMessages: ChatMessage[] = [
+export const mockChatMessages = [
   {
     id: "msg_1",
-    role: "assistant",
+    role: "assistant" as const,
     content: "Hello! I'm your ChessOps assistant. I can help you understand what's happening with the chess detection pipeline.",
     timestamp: Date.now() - 60000,
-    status: "complete",
+    status: "complete" as const,
   },
   {
     id: "msg_2",
-    role: "user",
+    role: "user" as const,
     content: "What's the current board state?",
     timestamp: Date.now() - 50000,
-    status: "complete",
+    status: "complete" as const,
   },
   {
     id: "msg_3",
-    role: "assistant",
+    role: "assistant" as const,
     content: "The current board state is the starting position. FEN: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
     timestamp: Date.now() - 45000,
-    status: "complete",
+    status: "complete" as const,
   },
 ];
 

@@ -6,21 +6,13 @@ import { Textarea } from "./components/ui/textarea";
 import { ChessOpsDashboard } from "./features/chessops-dashboard";
 
 // Feature flag for ChessOps Dashboard
-// Default to true for development (can be overridden by VITE_FEATURE_CHESSOPS_DASHBOARD=false)
+// Default to true for development
 const ENABLE_DASHBOARD = import.meta.env.VITE_FEATURE_CHESSOPS_DASHBOARD !== "false";
 
 function App() {
   // If dashboard is enabled, render it instead of the simple chat
   if (ENABLE_DASHBOARD) {
-    return (
-      <div className="min-h-screen bg-background">
-        <div className="p-8">
-          <h1 className="text-2xl font-bold mb-4">ChessOps Dashboard</h1>
-          <p className="text-muted-foreground mb-6">Loading dashboard components...</p>
-          <ChessOpsDashboard />
-        </div>
-      </div>
-    );
+    return <ChessOpsDashboard />;
   }
 
   // Otherwise, render the original simple chat UI
