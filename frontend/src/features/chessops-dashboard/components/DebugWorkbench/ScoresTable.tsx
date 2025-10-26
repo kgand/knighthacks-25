@@ -1,25 +1,31 @@
 /**
  * Scores Table Component
  * 
- * Per-cell classification scores with filtering and sorting
+ * Virtualized table showing per-cell predictions with sorting and filtering
  */
 
+import { useMemo, useState } from "react";
+import {
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  getFilteredRowModel,
+  flexRender,
+  type ColumnDef,
+  type SortingState,
+} from "@tanstack/react-table";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Search, Download } from "lucide-react";
-import {
-  useReactTable,
-  getCoreRowModel,
-  getFilteredRowModel,
-  getSortedRowModel,
-  flexRender,
-  createColumnHelper,
-} from "@tanstack/react-table";
-import { useMemo, useState } from "react";
+import { 
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Search,
+  Download,
+} from "lucide-react";
 import { useDashboardStore } from "../../store/dashboardStore";
-import { generateMockPipelineEvents } from "../../lib/mockData";
 
 interface CellScore {
   frame_id: string;
@@ -27,172 +33,265 @@ interface CellScore {
   top1_class: string;
   top1_confidence: number;
   entropy?: number;
+  delta_vs_previous?: number;
 }
 
 export function ScoresTable() {
-  const [events] = useState(() => generateMockPipelineEvents(50));
+  const { pipelineEvents, selection, setSelectedFrame, setSelectedCells } = useDashboardStore();
+  const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
-  const setSelectedCells = useDashboardStore((s) => s.setSelectedCells);
 
-  // Flatten cell scores from all events
+  // Extract cell scores from pipeline events (filtered by selection if present)
   const data = useMemo(() => {
+    const selectedEvents = selection.time_window
+      ? pipelineEvents.filter(
+          (e) =>
+            e.timestamp >= selection.time_window!.start_timestamp &&
+            e.timestamp <= selection.time_window!.end_timestamp
+        )
+      : pipelineEvents;
+
     const scores: CellScore[] = [];
-    events.forEach((event) => {
-      event.cell_scores?.forEach((score) => {
-        scores.push({
-          frame_id: event.frame_id,
-          cell: score.cell,
-          top1_class: score.top1_class,
-          top1_confidence: score.top1_confidence,
-          entropy: score.top_k
-            ? -score.top_k.reduce(
-                (sum, item) =>
-                  sum + item.confidence * Math.log2(item.confidence + 0.0001),
-                0
-              )
-            : undefined,
+    selectedEvents.forEach((event) => {
+      if (event.cell_scores) {
+        event.cell_scores.forEach((score) => {
+          scores.push({
+            frame_id: event.frame_id,
+            cell: score.cell,
+            top1_class: score.top1_class,
+            top1_confidence: score.top1_confidence,
+            entropy: score.entropy,
+            delta_vs_previous: score.delta_vs_previous,
+          });
         });
-      });
+      }
     });
+
     return scores;
-  }, [events]);
+  }, [pipelineEvents, selection.time_window]);
 
-  const columnHelper = createColumnHelper<CellScore>();
-
-  const columns = useMemo(
+  // Define columns
+  const columns = useMemo<ColumnDef<CellScore>[]>(
     () => [
-      columnHelper.accessor("cell", {
-        header: "Cell",
-        cell: (info) => (
-          <span className="font-mono text-xs font-medium">{info.getValue()}</span>
+      {
+        accessorKey: "frame_id",
+        header: "Frame",
+        cell: ({ row }) => (
+          <code className="text-xs font-mono text-muted-foreground">
+            {row.original.frame_id.slice(-8)}
+          </code>
         ),
-      }),
-      columnHelper.accessor("top1_class", {
-        header: "Piece",
-        cell: (info) => {
-          const value = info.getValue();
+      },
+      {
+        accessorKey: "cell",
+        header: ({ column }) => {
           return (
-            <Badge variant={value === "0" ? "outline" : "secondary"} className="text-xs">
-              {value === "0" ? "empty" : value}
-            </Badge>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2"
+              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            >
+              Cell
+              {column.getIsSorted() === "asc" ? (
+                <ArrowUp className="ml-2 h-3 w-3" />
+              ) : column.getIsSorted() === "desc" ? (
+                <ArrowDown className="ml-2 h-3 w-3" />
+              ) : (
+                <ArrowUpDown className="ml-2 h-3 w-3" />
+              )}
+            </Button>
           );
         },
-      }),
-      columnHelper.accessor("top1_confidence", {
-        header: "Confidence",
-        cell: (info) => {
-          const value = info.getValue();
+        cell: ({ row }) => (
+          <Badge variant="outline" className="font-mono">
+            {row.original.cell}
+          </Badge>
+        ),
+      },
+      {
+        accessorKey: "top1_class",
+        header: "Class",
+        cell: ({ row }) => (
+          <Badge variant="secondary" className="font-mono">
+            {row.original.top1_class === "0" ? "empty" : row.original.top1_class}
+          </Badge>
+        ),
+      },
+      {
+        accessorKey: "top1_confidence",
+        header: ({ column }) => {
+          return (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2"
+              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            >
+              Confidence
+              {column.getIsSorted() === "asc" ? (
+                <ArrowUp className="ml-2 h-3 w-3" />
+              ) : column.getIsSorted() === "desc" ? (
+                <ArrowDown className="ml-2 h-3 w-3" />
+              ) : (
+                <ArrowUpDown className="ml-2 h-3 w-3" />
+              )}
+            </Button>
+          );
+        },
+        cell: ({ row }) => {
+          const confidence = row.original.top1_confidence;
+          const color =
+            confidence >= 0.8 ? "bg-green-500" : confidence >= 0.5 ? "bg-yellow-500" : "bg-red-500";
           return (
             <div className="flex items-center gap-2">
-              <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
+              <div className="w-20 h-2 bg-muted rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-primary transition-all"
-                  style={{ width: `${value * 100}%` }}
+                  className={`h-full ${color} transition-all duration-300`}
+                  style={{ width: `${confidence * 100}%` }}
                 />
               </div>
-              <span className="text-xs font-medium">{(value * 100).toFixed(1)}%</span>
+              <span className="text-xs font-mono text-muted-foreground">
+                {(confidence * 100).toFixed(1)}%
+              </span>
             </div>
           );
         },
-        sortingFn: "basic",
-      }),
-      columnHelper.accessor("entropy", {
+      },
+      {
+        accessorKey: "entropy",
         header: "Entropy",
-        cell: (info) => {
-          const value = info.getValue();
-          return value !== undefined ? (
-            <span className="text-xs text-muted-foreground">{value.toFixed(2)}</span>
+        cell: ({ row }) =>
+          row.original.entropy ? (
+            <span className="text-xs font-mono text-muted-foreground">
+              {row.original.entropy.toFixed(3)}
+            </span>
           ) : (
             <span className="text-xs text-muted-foreground">—</span>
-          );
-        },
-      }),
-      columnHelper.accessor("frame_id", {
-        header: "Frame",
-        cell: (info) => (
-          <span className="text-xs text-muted-foreground font-mono">
-            {info.getValue().slice(-8)}
-          </span>
-        ),
-      }),
+          ),
+      },
+      {
+        accessorKey: "delta_vs_previous",
+        header: "Δ",
+        cell: ({ row }) =>
+          row.original.delta_vs_previous ? (
+            <Badge
+              variant="outline"
+              className={
+                row.original.delta_vs_previous > 0.3
+                  ? "border-yellow-500/50 bg-yellow-500/10"
+                  : ""
+              }
+            >
+              {row.original.delta_vs_previous.toFixed(2)}
+            </Badge>
+          ) : (
+            <span className="text-xs text-muted-foreground">—</span>
+          ),
+      },
     ],
-    [columnHelper]
+    []
   );
 
   const table = useReactTable({
     data,
     columns,
-    getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getSortedRowModel: getSortedRowModel(),
     state: {
+      sorting,
       globalFilter,
     },
+    onSortingChange: setSorting,
     onGlobalFilterChange: setGlobalFilter,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
   });
 
+  const handleRowClick = (row: CellScore) => {
+    setSelectedFrame(row.frame_id);
+    setSelectedCells([row.cell]);
+  };
+
   return (
-    <Card className="overflow-hidden">
-      {/* Header & Search */}
+    <Card className="flex flex-col h-full">
+      {/* Header */}
       <div className="p-4 border-b flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-semibold">Cell Scores</h3>
-          <p className="text-xs text-muted-foreground">{data.length} predictions</p>
+          <h3 className="font-semibold">Cell Scores</h3>
+          <p className="text-xs text-muted-foreground">
+            {table.getFilteredRowModel().rows.length} rows
+          </p>
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Search */}
           <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
+              placeholder="Search..."
               value={globalFilter}
               onChange={(e) => setGlobalFilter(e.target.value)}
-              placeholder="Search..."
-              className="pl-8 h-8 w-48 text-xs"
+              className="pl-8 h-9 w-[200px]"
             />
           </div>
-          <Button variant="outline" size="sm" className="gap-2">
-            <Download className="size-3.5" />
+
+          {/* Export */}
+          <Button variant="outline" size="sm" className="h-9">
+            <Download className="h-4 w-4 mr-2" />
             Export
           </Button>
         </div>
       </div>
 
       {/* Table */}
-      <div className="overflow-auto max-h-[400px]">
+      <div className="flex-1 overflow-auto">
         <table className="w-full text-sm">
-          <thead className="bg-muted/30 sticky top-0 z-10">
+          <thead className="sticky top-0 bg-card border-b z-10">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
                   <th
                     key={header.id}
-                    className="text-left px-4 py-2 text-xs font-medium text-muted-foreground cursor-pointer hover:bg-muted/50"
-                    onClick={header.column.getToggleSortingHandler()}
+                    className="h-10 px-4 text-left align-middle font-medium text-muted-foreground"
                   >
-                    {flexRender(header.column.columnDef.header, header.getContext())}
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(header.column.columnDef.header, header.getContext())}
                   </th>
                 ))}
               </tr>
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows.map((row) => (
-              <tr
-                key={row.id}
-                className="border-t hover:bg-muted/20 cursor-pointer transition-colors"
-                onClick={() => setSelectedCells([row.original.cell])}
-              >
-                {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-4 py-2">
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                ))}
+            {table.getRowModel().rows.length ? (
+              table.getRowModel().rows.map((row) => (
+                <tr
+                  key={row.id}
+                  className={`border-b transition-colors hover:bg-muted/50 cursor-pointer ${
+                    selection.selected_frame_id === row.original.frame_id &&
+                    selection.selected_cells?.includes(row.original.cell)
+                      ? "bg-primary/10"
+                      : ""
+                  }`}
+                  onClick={() => handleRowClick(row.original)}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <td key={cell.id} className="p-4 align-middle">
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={columns.length} className="h-24 text-center text-muted-foreground">
+                  No results.
+                </td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
       </div>
     </Card>
   );
 }
-

@@ -42,6 +42,7 @@ MANIFEST
 # IDEs
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 *~
@@ -67,3 +68,23 @@ temp/
 # Cache directories
 .cache/
 .parcel-cache/
+
+# IDE and editor files
+*.sublime-project
+*.sublime-workspace
+.vscode/
+.idea/
+.cursor/
+
+# Temporary and backup files
+*.tmp
+*.temp
+*.bak
+*.backup
+*~
+
+# Large files and downloads
+*.zip
+*.tar.gz
+*.rar
+kgand-*.txt

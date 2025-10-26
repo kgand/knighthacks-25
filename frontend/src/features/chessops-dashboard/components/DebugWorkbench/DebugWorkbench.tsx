@@ -1,83 +1,151 @@
 /**
  * Debug Workbench Component
  * 
- * Timeline + Tabbed detail views for pipeline debugging
+ * Central debugging interface with timeline and tabbed detail views
  */
 
-import { Card } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Activity } from "lucide-react";
+import { Tabs } from "@/components/ui/tabs";
+import { useDashboardStore } from "../../store/dashboardStore";
 import { Timeline } from "./Timeline";
 import { ScoresTable } from "./ScoresTable";
 import { PipelineStepper } from "./PipelineStepper";
-import { useDashboardStore } from "../../store/dashboardStore";
+import { FileCode, Table, Grid3x3, CheckSquare, AlertTriangle } from "lucide-react";
+
+// Placeholder components for tabs not yet implemented
+function HeatmapsTab() {
+  return (
+    <div className="h-full flex items-center justify-center">
+      <div className="text-center text-muted-foreground">
+        <Grid3x3 className="h-12 w-12 mx-auto mb-2 opacity-50" />
+        <p className="text-sm">Heatmaps visualization coming soon</p>
+        <p className="text-xs mt-1">Board-shaped confidence/presence grids</p>
+      </div>
+    </div>
+  );
+}
+
+function BoardstateTab() {
+  return (
+    <div className="h-full flex items-center justify-center">
+      <div className="text-center text-muted-foreground">
+        <CheckSquare className="h-12 w-12 mx-auto mb-2 opacity-50" />
+        <p className="text-sm">Boardstate viewer coming soon</p>
+        <p className="text-xs mt-1">Live chessboard with FEN/PGN display</p>
+      </div>
+    </div>
+  );
+}
+
+function AlertsTab() {
+  return (
+    <div className="h-full flex items-center justify-center">
+      <div className="text-center text-muted-foreground">
+        <AlertTriangle className="h-12 w-12 mx-auto mb-2 opacity-50" />
+        <p className="text-sm">Alerts panel coming soon</p>
+        <p className="text-xs mt-1">Anomalies, warnings, and quick actions</p>
+      </div>
+    </div>
+  );
+}
 
 export function DebugWorkbench() {
-  const activeTab = useDashboardStore((s) => s.activeTab);
-  const setActiveTab = useDashboardStore((s) => s.setActiveTab);
+  const { activeTab, setActiveTab } = useDashboardStore();
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="p-4 border-b">
-        <h2 className="text-sm font-semibold flex items-center gap-2">
-          <Activity className="size-4" />
-          Debugging Workbench
-        </h2>
-      </div>
-
+    <div className="h-full flex flex-col p-4 gap-4 overflow-hidden">
       {/* Timeline */}
-      <div className="p-4 border-b">
+      <div className="flex-shrink-0">
         <Timeline />
       </div>
 
-      {/* Tabbed Details */}
-      <div className="flex-1 overflow-hidden p-4">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col h-full">
-          <TabsList className="mb-4">
-            <TabsTrigger value="pipeline">Pipeline</TabsTrigger>
-            <TabsTrigger value="scores">Scores</TabsTrigger>
-            <TabsTrigger value="heatmap">Heatmap</TabsTrigger>
-            <TabsTrigger value="boardstate">Boardstate</TabsTrigger>
-            <TabsTrigger value="alerts">Alerts</TabsTrigger>
-          </TabsList>
+      {/* Tabbed Detail Views */}
+      <div className="flex-1 overflow-hidden">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
+          {/* Tab List */}
+          <div className="flex-shrink-0 border-b">
+            <div className="flex gap-4 px-1">
+              <button
+                onClick={() => setActiveTab("pipeline")}
+                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === "pipeline"
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted"
+                }`}
+              >
+                <FileCode className="h-4 w-4" />
+                Pipeline
+              </button>
 
-          <div className="flex-1 overflow-auto">
-            <TabsContent value="pipeline" className="mt-0">
-              <PipelineStepper />
-            </TabsContent>
+              <button
+                onClick={() => setActiveTab("scores")}
+                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === "scores"
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted"
+                }`}
+              >
+                <Table className="h-4 w-4" />
+                Scores
+              </button>
 
-            <TabsContent value="scores" className="mt-0">
-              <ScoresTable />
-            </TabsContent>
+              <button
+                onClick={() => setActiveTab("heatmaps")}
+                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === "heatmaps"
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted"
+                }`}
+              >
+                <Grid3x3 className="h-4 w-4" />
+                Heatmaps
+              </button>
 
-            <TabsContent value="heatmap" className="mt-0">
-              <Card className="p-6">
-                <div className="text-center text-muted-foreground">
-                  <p>Heatmap visualization coming soon</p>
-                </div>
-              </Card>
-            </TabsContent>
+              <button
+                onClick={() => setActiveTab("boardstate")}
+                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === "boardstate"
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted"
+                }`}
+              >
+                <CheckSquare className="h-4 w-4" />
+                Boardstate
+              </button>
 
-            <TabsContent value="boardstate" className="mt-0">
-              <Card className="p-6">
-                <div className="text-center text-muted-foreground">
-                  <p>Boardstate viewer coming soon</p>
-                </div>
-              </Card>
-            </TabsContent>
+              <button
+                onClick={() => setActiveTab("alerts")}
+                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === "alerts"
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted"
+                }`}
+              >
+                <AlertTriangle className="h-4 w-4" />
+                Alerts
+              </button>
+            </div>
+          </div>
 
-            <TabsContent value="alerts" className="mt-0">
-              <Card className="p-6">
-                <div className="text-center text-muted-foreground">
-                  <p>Alerts panel coming soon</p>
-                </div>
-              </Card>
-            </TabsContent>
+          {/* Tab Content */}
+          <div className="flex-1 overflow-hidden mt-4">
+            {activeTab === "pipeline" && (
+              <div className="h-full overflow-y-auto">
+                <PipelineStepper />
+              </div>
+            )}
+
+            {activeTab === "scores" && (
+              <div className="h-full">
+                <ScoresTable />
+              </div>
+            )}
+
+            {activeTab === "heatmaps" && <HeatmapsTab />}
+            {activeTab === "boardstate" && <BoardstateTab />}
+            {activeTab === "alerts" && <AlertsTab />}
           </div>
         </Tabs>
       </div>
     </div>
   );
 }
-

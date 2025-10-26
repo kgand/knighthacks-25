@@ -1,152 +1,220 @@
 /**
  * Timeline Component
  * 
- * Multi-series time chart with brush/zoom for pipeline metrics
+ * Multi-series chart showing pipeline metrics over time with brush/zoom
  */
 
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { useEffect, useState } from "react";
 import {
-  LineChart,
-  Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
   Brush,
 } from "recharts";
 import { useDashboardStore } from "../../store/dashboardStore";
 import { generateMockPipelineEvents } from "../../lib/mockData";
-import { useState, useMemo } from "react";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { TrendingUp, Activity, Target } from "lucide-react";
+
+interface TimelineDataPoint {
+  timestamp: number;
+  latency: number;
+  confidence: number;
+  detections: number;
+}
 
 export function Timeline() {
-  const [events] = useState(() => generateMockPipelineEvents(300));
-  const setTimeWindow = useDashboardStore((s) => s.setTimeWindow);
+  const { pipelineEvents, addPipelineEvent, setTimeWindow } = useDashboardStore();
+  const [data, setData] = useState<TimelineDataPoint[]>([]);
 
-  // Transform events to chart data
-  const chartData = useMemo(() => {
-    return events.map((event) => {
+  // Initialize with mock data and simulate live updates
+  useEffect(() => {
+    // Load initial mock data
+    const initialEvents = generateMockPipelineEvents(300);
+    initialEvents.forEach((event) => addPipelineEvent(event));
+
+    // Simulate live updates (30 FPS = ~33ms per frame)
+    const interval = setInterval(() => {
+      const newEvent = generateMockPipelineEvents(1)[0];
+      addPipelineEvent(newEvent);
+    }, 33);
+
+    return () => clearInterval(interval);
+  }, [addPipelineEvent]);
+
+  // Transform pipeline events into chart data
+  useEffect(() => {
+    const chartData: TimelineDataPoint[] = pipelineEvents.map((event) => {
       const totalLatency = event.stage_timings
-        ? Object.values(event.stage_timings).reduce((a, b) => a + b, 0)
+        ? Object.values(event.stage_timings).reduce((sum, val) => sum + val, 0)
         : 0;
 
-      const avgConfidence =
-        event.cell_scores && event.cell_scores.length > 0
-          ? event.cell_scores.reduce((sum, cell) => sum + cell.top1_confidence, 0) /
-            event.cell_scores.length
-          : 0;
+      const avgConfidence = event.cell_scores
+        ? event.cell_scores.reduce((sum, cell) => sum + cell.top1_confidence, 0) /
+          event.cell_scores.length
+        : 0;
+
+      const numDetections = event.cell_scores?.length || 0;
 
       return {
         timestamp: event.timestamp,
-        time_label: new Date(event.timestamp).toLocaleTimeString(),
-        latency_ms: Math.round(totalLatency),
-        num_detections: event.cell_scores?.length || 0,
-        avg_confidence: Math.round(avgConfidence * 100),
-        has_anomaly: event.anomalies && event.anomalies.length > 0 ? 100 : 0,
+        latency: Number(totalLatency.toFixed(2)),
+        confidence: Number((avgConfidence * 100).toFixed(1)),
+        detections: numDetections,
       };
     });
-  }, [events]);
 
-  const stats = useMemo(() => {
-    if (chartData.length === 0) return null;
-    const avgLatency =
-      chartData.reduce((sum, d) => sum + d.latency_ms, 0) / chartData.length;
-    const maxLatency = Math.max(...chartData.map((d) => d.latency_ms));
-    const anomalyCount = chartData.filter((d) => d.has_anomaly > 0).length;
-    return { avgLatency, maxLatency, anomalyCount };
-  }, [chartData]);
+    setData(chartData);
+  }, [pipelineEvents]);
 
   const handleBrushChange = (brushData: any) => {
     if (brushData && brushData.startIndex !== undefined && brushData.endIndex !== undefined) {
-      const startTime = chartData[brushData.startIndex].timestamp;
-      const endTime = chartData[brushData.endIndex].timestamp;
-      setTimeWindow(startTime, endTime);
+      const start = data[brushData.startIndex]?.timestamp;
+      const end = data[brushData.endIndex]?.timestamp;
+      if (start && end) {
+        setTimeWindow(start, end);
+      }
     }
   };
+
+  const latestData = data[data.length - 1];
 
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between mb-4">
-        <div>
-          <h3 className="text-sm font-semibold">Pipeline Metrics Timeline</h3>
-          <p className="text-xs text-muted-foreground">{chartData.length} frames tracked</p>
+        <div className="flex items-center gap-2">
+          <Activity className="h-5 w-5 text-muted-foreground" />
+          <h3 className="font-semibold">Pipeline Metrics</h3>
         </div>
-
-        {stats && (
-          <div className="flex gap-3">
-            <div className="text-right">
-              <p className="text-xs text-muted-foreground">Avg Latency</p>
-              <p className="text-sm font-medium">{stats.avgLatency.toFixed(1)}ms</p>
-            </div>
-            <div className="text-right">
-              <p className="text-xs text-muted-foreground">Max Latency</p>
-              <p className="text-sm font-medium">{stats.maxLatency}ms</p>
-            </div>
-            <div className="text-right">
-              <p className="text-xs text-muted-foreground">Anomalies</p>
-              <Badge variant={stats.anomalyCount > 0 ? "destructive" : "outline"}>
-                {stats.anomalyCount}
-              </Badge>
-            </div>
+        
+        {/* Live Stats */}
+        {latestData && (
+          <div className="flex items-center gap-3">
+            <Badge variant="outline" className="flex items-center gap-1.5">
+              <TrendingUp className="h-3 w-3" />
+              <span className="font-mono text-xs">{latestData.latency}ms</span>
+            </Badge>
+            <Badge variant="outline" className="flex items-center gap-1.5">
+              <Target className="h-3 w-3" />
+              <span className="font-mono text-xs">{latestData.confidence}%</span>
+            </Badge>
+            <Badge variant="outline" className="flex items-center gap-1.5">
+              <Activity className="h-3 w-3" />
+              <span className="font-mono text-xs">{latestData.detections}</span>
+            </Badge>
           </div>
         )}
       </div>
 
       <ResponsiveContainer width="100%" height={200}>
-        <LineChart data={chartData}>
+        <AreaChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+          <defs>
+            <linearGradient id="colorLatency" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
+              <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+            </linearGradient>
+            <linearGradient id="colorConfidence" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="hsl(142, 76%, 36%)" stopOpacity={0.3} />
+              <stop offset="95%" stopColor="hsl(142, 76%, 36%)" stopOpacity={0} />
+            </linearGradient>
+            <linearGradient id="colorDetections" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="hsl(217, 91%, 60%)" stopOpacity={0.3} />
+              <stop offset="95%" stopColor="hsl(217, 91%, 60%)" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+
           <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+
           <XAxis
-            dataKey="time_label"
-            tick={{ fontSize: 10 }}
-            interval="preserveStartEnd"
+            dataKey="timestamp"
+            tickFormatter={(ts) => new Date(ts).toLocaleTimeString()}
+            tick={{ fontSize: 11 }}
+            stroke="hsl(var(--muted-foreground))"
+            opacity={0.5}
           />
-          <YAxis tick={{ fontSize: 10 }} />
+
+          <YAxis
+            yAxisId="latency"
+            orientation="left"
+            tick={{ fontSize: 11 }}
+            stroke="hsl(var(--muted-foreground))"
+            opacity={0.5}
+          />
+
+          <YAxis
+            yAxisId="confidence"
+            orientation="right"
+            tick={{ fontSize: 11 }}
+            stroke="hsl(var(--muted-foreground))"
+            opacity={0.5}
+          />
+
           <Tooltip
             contentStyle={{
-              backgroundColor: "var(--background)",
-              border: "1px solid var(--border)",
+              backgroundColor: "hsl(var(--popover))",
+              border: "1px solid hsl(var(--border))",
               borderRadius: "8px",
               fontSize: "12px",
             }}
+            labelFormatter={(ts) => new Date(ts).toLocaleTimeString()}
+            formatter={(value: any, name: string) => {
+              if (name === "latency") return [`${value}ms`, "Latency"];
+              if (name === "confidence") return [`${value}%`, "Confidence"];
+              if (name === "detections") return [value, "Detections"];
+              return [value, name];
+            }}
           />
-          <Legend wrapperStyle={{ fontSize: "12px" }} />
 
-          <Line
+          <Area
+            yAxisId="latency"
             type="monotone"
-            dataKey="latency_ms"
-            stroke="hsl(var(--chart-1))"
+            dataKey="latency"
+            stroke="hsl(var(--primary))"
             strokeWidth={2}
-            dot={false}
-            name="Latency (ms)"
+            fillOpacity={1}
+            fill="url(#colorLatency)"
           />
-          <Line
+
+          <Area
+            yAxisId="confidence"
             type="monotone"
-            dataKey="avg_confidence"
-            stroke="hsl(var(--chart-2))"
+            dataKey="confidence"
+            stroke="hsl(142, 76%, 36%)"
             strokeWidth={2}
-            dot={false}
-            name="Avg Confidence (%)"
-          />
-          <Line
-            type="monotone"
-            dataKey="num_detections"
-            stroke="hsl(var(--chart-3))"
-            strokeWidth={2}
-            dot={false}
-            name="# Detections"
+            fillOpacity={1}
+            fill="url(#colorConfidence)"
           />
 
           <Brush
-            dataKey="time_label"
+            dataKey="timestamp"
             height={30}
             stroke="hsl(var(--primary))"
+            fill="hsl(var(--muted))"
             onChange={handleBrushChange}
           />
-        </LineChart>
+        </AreaChart>
       </ResponsiveContainer>
+
+      {/* Legend */}
+      <div className="flex items-center justify-center gap-6 mt-4 text-xs">
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "hsl(var(--primary))" }} />
+          <span className="text-muted-foreground">Latency (ms)</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "hsl(142, 76%, 36%)" }} />
+          <span className="text-muted-foreground">Confidence (%)</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: "hsl(217, 91%, 60%)" }} />
+          <span className="text-muted-foreground">Detections</span>
+        </div>
+      </div>
     </Card>
   );
 }
-

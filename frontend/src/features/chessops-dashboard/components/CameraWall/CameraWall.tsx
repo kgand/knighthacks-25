@@ -1,164 +1,232 @@
 /**
  * Camera Wall Component
  * 
- * Displays two camera feeds: robot arm + top-down chessboard
+ * Displays dual camera feeds with overlays, controls, and health indicators
  */
 
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Camera, Maximize2, Minimize2, Pause, Play } from "lucide-react";
-import { useState } from "react";
+import { Tooltip } from "@/components/ui/tooltip";
+import {
+  Play,
+  Pause,
+  Camera,
+  Maximize,
+  Download,
+  Circle,
+  Grid3x3,
+  Eye,
+  Activity,
+} from "lucide-react";
+import { useDashboardStore } from "../../store/dashboardStore";
 import { mockCameraFeeds } from "../../lib/mockData";
 
-export function CameraWall() {
-  const [feeds] = useState(mockCameraFeeds);
-
-  return (
-    <div className="flex-1 overflow-auto p-4 space-y-4">
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-sm font-semibold flex items-center gap-2">
-          <Camera className="size-4" />
-          Camera Feeds
-        </h2>
-      </div>
-
-      {/* Robot Arm Camera */}
-      <CameraFeedCard feed={feeds["robot-arm"]} />
-
-      {/* Top-Down Board Camera */}
-      <CameraFeedCard feed={feeds["top-down"]} />
-    </div>
-  );
+interface CameraFeedProps {
+  id: string;
+  label: string;
+  url?: string;
+  health: "connecting" | "connected" | "buffering" | "error" | "disconnected";
+  fps?: number;
+  latency_ms?: number;
+  resolution?: { width: number; height: number };
 }
 
-interface CameraFeedCardProps {
-  feed: typeof mockCameraFeeds[string];
-}
-
-function CameraFeedCard({ feed }: CameraFeedCardProps) {
+function CameraFeedDisplay({ id, label, health, fps, latency_ms, resolution }: CameraFeedProps) {
   const [isPlaying, setIsPlaying] = useState(true);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [showOverlay, setShowOverlay] = useState(true);
 
-  const isConnected = feed.health === "connected";
+  const healthColors = {
+    connecting: "border-yellow-500/50 bg-yellow-500/10",
+    connected: "border-green-500/50 bg-green-500/10",
+    buffering: "border-blue-500/50 bg-blue-500/10",
+    error: "border-red-500/50 bg-red-500/10",
+    disconnected: "border-gray-500/50 bg-gray-500/10",
+  };
+
+  const healthIcon = {
+    connecting: <Activity className="h-3 w-3 animate-pulse" />,
+    connected: <Circle className="h-3 w-3 fill-current" />,
+    buffering: <Activity className="h-3 w-3 animate-spin" />,
+    error: <Circle className="h-3 w-3" />,
+    disconnected: <Circle className="h-3 w-3" />,
+  };
 
   return (
-    <Card className="overflow-hidden">
-      {/* Header */}
-      <div className="p-3 border-b bg-muted/30 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">{feed.label}</span>
-          <Badge 
-            variant={isConnected ? "success" : "outline"}
-            className="text-xs"
-          >
-            {feed.health}
-          </Badge>
-        </div>
-        <div className="flex items-center gap-1">
-          {feed.fps && (
-            <Badge variant="outline" className="text-xs">
-              {feed.fps} FPS
-            </Badge>
-          )}
-          {feed.latency_ms && (
-            <Badge variant="outline" className="text-xs">
-              {feed.latency_ms}ms
-            </Badge>
-          )}
-        </div>
-      </div>
-
-      {/* Video/Image Display */}
-      <div className="relative aspect-video bg-black/90">
-        {isConnected ? (
-          <>
-            {/* Placeholder for actual video stream */}
-            <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
-              <div className="text-center space-y-2">
-                <Camera className="size-12 mx-auto opacity-20" />
-                <p className="text-xs">Camera feed placeholder</p>
-                <p className="text-xs opacity-70">
-                  {feed.resolution?.width} × {feed.resolution?.height}
-                </p>
-              </div>
+    <Card className="relative overflow-hidden group transition-all duration-200 hover:ring-2 hover:ring-primary/50">
+      {/* Video Container */}
+      <div className="relative aspect-video bg-muted flex items-center justify-center">
+        {/* Loading State */}
+        {health === "connecting" && (
+          <div className="absolute inset-0">
+            <Skeleton className="w-full h-full" />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Activity className="h-12 w-12 animate-pulse text-muted-foreground" />
             </div>
-
-            {/* Overlay (grid, keypoints, etc.) */}
-            {showOverlay && (
-              <svg className="absolute inset-0 pointer-events-none">
-                {/* Example grid overlay for top-down */}
-                {feed.id === "top-down" && (
-                  <g opacity="0.5" stroke="cyan" strokeWidth="1.5">
-                    {/* 8x8 grid lines */}
-                    {Array.from({ length: 9 }).map((_, i) => (
-                      <line
-                        key={`h-${i}`}
-                        x1="10%"
-                        y1={`${10 + i * 10}%`}
-                        x2="90%"
-                        y2={`${10 + i * 10}%`}
-                      />
-                    ))}
-                    {Array.from({ length: 9 }).map((_, i) => (
-                      <line
-                        key={`v-${i}`}
-                        x1={`${10 + i * 10}%`}
-                        y1="10%"
-                        x2={`${10 + i * 10}%`}
-                        y2="90%"
-                      />
-                    ))}
-                  </g>
-                )}
-              </svg>
-            )}
-          </>
-        ) : (
-          <Skeleton className="w-full h-full" />
+          </div>
         )}
+
+        {/* Placeholder Feed (Static Image) */}
+        {health === "connected" && (
+          <div className="absolute inset-0 bg-gradient-to-br from-muted via-background to-muted flex items-center justify-center">
+            <Camera className="h-24 w-24 text-muted-foreground/30" />
+            <div className="absolute bottom-4 left-4 text-xs text-muted-foreground font-mono">
+              {id === "robot-arm" ? "Robot Arm Camera" : "Top-Down Board View"}
+            </div>
+          </div>
+        )}
+
+        {/* Overlay */}
+        {showOverlay && health === "connected" && (
+          <div className="absolute inset-0 pointer-events-none">
+            {/* Grid Overlay */}
+            <svg className="w-full h-full opacity-30">
+              <defs>
+                <pattern
+                  id={`grid-${id}`}
+                  width="40"
+                  height="40"
+                  patternUnits="userSpaceOnUse"
+                >
+                  <path
+                    d="M 40 0 L 0 0 0 40"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="0.5"
+                  />
+                </pattern>
+              </defs>
+              <rect width="100%" height="100%" fill={`url(#grid-${id})`} />
+            </svg>
+
+            {/* Corner Markers (for top-down board) */}
+            {id === "top-down" && (
+              <>
+                <div className="absolute top-12 left-12 w-3 h-3 rounded-full bg-primary animate-pulse" />
+                <div className="absolute top-12 right-12 w-3 h-3 rounded-full bg-primary animate-pulse" />
+                <div className="absolute bottom-12 left-12 w-3 h-3 rounded-full bg-primary animate-pulse" />
+                <div className="absolute bottom-12 right-12 w-3 h-3 rounded-full bg-primary animate-pulse" />
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Control Overlay (visible on hover) */}
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setIsPlaying(!isPlaying)}
+              className="backdrop-blur-sm"
+            >
+              {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+            </Button>
+            <Button variant="secondary" size="sm" className="backdrop-blur-sm">
+              <Download className="h-4 w-4" />
+            </Button>
+            <Button variant="secondary" size="sm" className="backdrop-blur-sm">
+              <Maximize className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
       </div>
 
-      {/* Controls */}
-      <div className="p-2 border-t bg-muted/10 flex items-center justify-between">
-        <div className="flex items-center gap-1">
+      {/* Info Bar */}
+      <div className="p-3 border-t bg-card/50 backdrop-blur-sm flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className={`text-xs ${healthColors[health]}`}>
+            {healthIcon[health]}
+            <span className="ml-1.5 capitalize">{health}</span>
+          </Badge>
+          <span className="text-sm font-medium">{label}</span>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {fps && (
+            <Badge variant="secondary" className="text-xs font-mono">
+              {fps} FPS
+            </Badge>
+          )}
+          {latency_ms && (
+            <Badge variant="secondary" className="text-xs font-mono">
+              {latency_ms}ms
+            </Badge>
+          )}
+          {resolution && (
+            <Badge variant="secondary" className="text-xs font-mono">
+              {resolution.width}×{resolution.height}
+            </Badge>
+          )}
+
           <Button
             variant="ghost"
-            size="icon-sm"
-            onClick={() => setIsPlaying(!isPlaying)}
-          >
-            {isPlaying ? (
-              <Pause className="size-3.5" />
-            ) : (
-              <Play className="size-3.5" />
-            )}
-          </Button>
-
-          <Button
-            variant={showOverlay ? "secondary" : "ghost"}
             size="sm"
+            className="h-7 w-7 p-0"
             onClick={() => setShowOverlay(!showOverlay)}
-            className="text-xs h-7"
           >
-            Overlay
+            {showOverlay ? <Eye className="h-3.5 w-3.5" /> : <Grid3x3 className="h-3.5 w-3.5" />}
           </Button>
         </div>
-
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => setIsFullscreen(!isFullscreen)}
-        >
-          {isFullscreen ? (
-            <Minimize2 className="size-3.5" />
-          ) : (
-            <Maximize2 className="size-3.5" />
-          )}
-        </Button>
       </div>
     </Card>
   );
 }
 
+export function CameraWall() {
+  const { cameraFeeds, updateCameraFeed } = useDashboardStore();
+
+  // Initialize camera feeds with mock data
+  useEffect(() => {
+    Object.entries(mockCameraFeeds).forEach(([id, feed]) => {
+      updateCameraFeed(id, feed);
+    });
+
+    // Simulate connection
+    setTimeout(() => {
+      Object.keys(mockCameraFeeds).forEach((id) => {
+        updateCameraFeed(id, { health: "connected" });
+      });
+    }, 1500);
+  }, [updateCameraFeed]);
+
+  const cameraFeedArray = Object.values(cameraFeeds);
+
+  return (
+    <div className="h-full flex flex-col p-4 gap-4 overflow-y-auto">
+      {/* Title */}
+      <div className="flex items-center gap-2">
+        <Camera className="h-5 w-5 text-muted-foreground" />
+        <h2 className="font-semibold text-lg">Camera Feeds</h2>
+        <Badge variant="secondary" className="ml-auto">
+          {cameraFeedArray.length} Cameras
+        </Badge>
+      </div>
+
+      {/* Feeds */}
+      <div className="flex flex-col gap-4">
+        {cameraFeedArray.length === 0 ? (
+          <>
+            <Skeleton className="w-full aspect-video rounded-lg" />
+            <Skeleton className="w-full aspect-video rounded-lg" />
+          </>
+        ) : (
+          cameraFeedArray.map((feed) => (
+            <CameraFeedDisplay
+              key={feed.id}
+              id={feed.id}
+              label={feed.label}
+              url={feed.url}
+              health={feed.health}
+              fps={feed.fps}
+              latency_ms={feed.latency_ms}
+              resolution={feed.resolution}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
