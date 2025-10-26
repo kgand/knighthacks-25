@@ -44,16 +44,65 @@ export function CameraFeed({ title, deviceId, overlays }: Props) {
   useEffect(() => {
     if (!selectedDeviceId) return;
 
+    let timeoutId: NodeJS.Timeout;
+    let video: HTMLVideoElement | null = null;
+
     const startStream = async () => {
       try {
         setStatus("connecting");
+        console.log('Starting stream for device:', selectedDeviceId);
         
         const stream = await cameraManager.getStream(selectedDeviceId);
+        console.log('Got stream:', stream);
         
         if (stream && videoRef.current) {
-          videoRef.current.srcObject = stream;
-          setStatus("connected");
+          video = videoRef.current;
+          video.srcObject = stream;
+          console.log('Set video srcObject');
+          
+          // Set up event listeners
+          const handleLoadedMetadata = () => {
+            console.log('Video metadata loaded');
+            setStatus("connected");
+          };
+          
+          const handleError = (e: Event) => {
+            console.error('Video error:', e);
+            setStatus("error");
+          };
+          
+          const handleCanPlay = () => {
+            console.log('Video can play');
+            setStatus("connected");
+          };
+          
+          const handlePlay = () => {
+            console.log('Video playing');
+            setStatus("connected");
+          };
+          
+          video.addEventListener('loadedmetadata', handleLoadedMetadata);
+          video.addEventListener('error', handleError);
+          video.addEventListener('canplay', handleCanPlay);
+          video.addEventListener('play', handlePlay);
+          
+          // Try to play immediately
+          try {
+            await video.play();
+            console.log('Video play started');
+          } catch (playError) {
+            console.log('Auto-play failed, waiting for user interaction:', playError);
+          }
+          
+          // Timeout fallback
+          timeoutId = setTimeout(() => {
+            if (status === "connecting") {
+              console.log('Video load timeout, trying to play');
+              video?.play().catch(console.error);
+            }
+          }, 5000);
         } else {
+          console.error('No stream or video element');
           setStatus("error");
         }
       } catch (error) {
@@ -66,6 +115,7 @@ export function CameraFeed({ title, deviceId, overlays }: Props) {
 
     // Cleanup on unmount
     return () => {
+      if (timeoutId) clearTimeout(timeoutId);
       if (selectedDeviceId) {
         cameraManager.stopStream(selectedDeviceId);
       }
@@ -96,20 +146,41 @@ export function CameraFeed({ title, deviceId, overlays }: Props) {
       </div>
 
       <div className="relative">
-        {status === "connected" ? (
-          <video 
-            ref={videoRef} 
-            className="aspect-video w-full rounded-b-2xl bg-black object-cover" 
-            autoPlay 
-            muted 
-            playsInline 
-          />
-        ) : (
+        <video 
+          ref={videoRef} 
+          className="aspect-video w-full rounded-b-2xl bg-black object-cover" 
+          autoPlay 
+          muted 
+          playsInline 
+          style={{ display: status === "connected" ? "block" : "none" }}
+          onClick={() => {
+            if (videoRef.current) {
+              console.log('Manual play attempt');
+              videoRef.current.play().catch(console.error);
+            }
+          }}
+        />
+        {status !== "connected" && (
           <div className="flex aspect-video w-full items-center justify-center rounded-b-2xl bg-black">
             {status === "error" ? (
               <div className="flex flex-col items-center gap-2 text-zinc-400">
                 <VideoOff className="size-8" />
                 <span className="text-sm">Camera Error</span>
+                <button
+                  onClick={async () => {
+                    console.log('Manual retry');
+                    if (selectedDeviceId) {
+                      const stream = await cameraManager.getStream(selectedDeviceId);
+                      if (stream && videoRef.current) {
+                        videoRef.current.srcObject = stream;
+                        videoRef.current.play().catch(console.error);
+                      }
+                    }
+                  }}
+                  className="mt-2 rounded bg-fuchsia-500/20 px-3 py-1 text-xs hover:bg-fuchsia-500/30"
+                >
+                  Retry
+                </button>
               </div>
             ) : (
               <div className="flex flex-col items-center gap-2 text-zinc-400">
