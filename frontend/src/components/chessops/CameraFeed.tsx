@@ -46,6 +46,7 @@ export function CameraFeed({ title, deviceId, overlays }: Props) {
 
     let timeoutId: NodeJS.Timeout;
     let video: HTMLVideoElement | null = null;
+    let eventListeners: Array<{ element: HTMLVideoElement; event: string; handler: EventListener }> = [];
 
     const startStream = async () => {
       try {
@@ -81,10 +82,18 @@ export function CameraFeed({ title, deviceId, overlays }: Props) {
             setStatus("connected");
           };
           
-          video.addEventListener('loadedmetadata', handleLoadedMetadata);
-          video.addEventListener('error', handleError);
-          video.addEventListener('canplay', handleCanPlay);
-          video.addEventListener('play', handlePlay);
+          // Add event listeners and track them for cleanup
+          const events = [
+            { event: 'loadedmetadata', handler: handleLoadedMetadata },
+            { event: 'error', handler: handleError },
+            { event: 'canplay', handler: handleCanPlay },
+            { event: 'play', handler: handlePlay }
+          ];
+          
+          events.forEach(({ event, handler }) => {
+            video!.addEventListener(event, handler);
+            eventListeners.push({ element: video!, event, handler });
+          });
           
           // Try to play immediately
           try {
@@ -116,6 +125,12 @@ export function CameraFeed({ title, deviceId, overlays }: Props) {
     // Cleanup on unmount
     return () => {
       if (timeoutId) clearTimeout(timeoutId);
+      
+      // Remove all event listeners
+      eventListeners.forEach(({ element, event, handler }) => {
+        element.removeEventListener(event, handler);
+      });
+      
       if (selectedDeviceId) {
         cameraManager.stopStream(selectedDeviceId);
       }
