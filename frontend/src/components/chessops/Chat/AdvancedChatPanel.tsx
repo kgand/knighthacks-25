@@ -80,7 +80,7 @@ export function AdvancedChatPanel() {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "welcome",
-      content: "Hello! I'm your A2A Agent Observatory assistant. I can connect you with our quantum planning, neural worldview, synthetic personality, and cognitive analysis agents. How can I help you today?",
+      content: "Hello! I'm your A2A Agent Observatory assistant. I can connect you with our AI agents to help with chess analysis, game strategy, and board state recognition. How can I help you today?",
       role: "assistant",
       timestamp: new Date(),
       agent: "System",

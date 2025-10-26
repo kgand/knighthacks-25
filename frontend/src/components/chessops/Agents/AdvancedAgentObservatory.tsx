@@ -85,10 +85,19 @@ interface AgentMessage {
   confidence: number;
 }
 
+interface WebSocketLog {
+  id: string;
+  timestamp: Date;
+  type: "connection" | "message" | "error" | "status";
+  content: string;
+  agent?: string;
+  raw?: any;
+}
+
 const AGENTS: Agent[] = [
   {
     id: "vision-agent",
-    name: "Computer Vision Agent",
+    name: "ChessVision",
     type: "vision-agent",
     status: "idle",
     lastActivity: new Date(),
@@ -97,7 +106,7 @@ const AGENTS: Agent[] = [
     confidence: 0.95,
     color: "from-blue-500 to-cyan-500",
     icon: <Eye className="size-5" />,
-    description: "Computer Vision and Object Detection",
+    description: "Analyzes chess board and identifies pieces",
     thinkingBudget: 0.5,
     processingTime: 0,
     errorCount: 0,
@@ -115,7 +124,7 @@ const AGENTS: Agent[] = [
   },
   {
     id: "motion-agent",
-    name: "Motion Planning Agent",
+    name: "ChessBot",
     type: "motion-agent", 
     status: "idle",
     lastActivity: new Date(),
@@ -124,7 +133,7 @@ const AGENTS: Agent[] = [
     confidence: 0.88,
     color: "from-purple-500 to-pink-500",
     icon: <Target className="size-5" />,
-    description: "Motion Planning and Trajectory Generation",
+    description: "Executes physical chess moves",
     thinkingBudget: 0.5,
     processingTime: 0,
     errorCount: 0,
@@ -142,7 +151,7 @@ const AGENTS: Agent[] = [
   },
   {
     id: "coordination-agent",
-    name: "Task Coordination Agent",
+    name: "GameMaster",
     type: "coordination-agent",
     status: "idle", 
     lastActivity: new Date(),
@@ -151,7 +160,7 @@ const AGENTS: Agent[] = [
     confidence: 0.92,
     color: "from-emerald-500 to-teal-500",
     icon: <Network className="size-5" />,
-    description: "Task Coordination and Orchestration",
+    description: "Coordinates game strategy and tactics",
     thinkingBudget: 0.5,
     processingTime: 0,
     errorCount: 0,
@@ -169,7 +178,7 @@ const AGENTS: Agent[] = [
   },
   {
     id: "root-agent",
-    name: "Root Control Agent",
+    name: "ChessAI",
     type: "root-agent",
     status: "idle",
     lastActivity: new Date(),
@@ -178,7 +187,7 @@ const AGENTS: Agent[] = [
     confidence: 0.91,
     color: "from-orange-500 to-red-500",
     icon: <Brain className="size-5" />,
-    description: "Main Control and Chess Game Management",
+    description: "Makes strategic chess decisions",
     thinkingBudget: 0.5,
     processingTime: 0,
     errorCount: 0,
@@ -199,7 +208,8 @@ const AGENTS: Agent[] = [
 export function AdvancedAgentObservatory() {
   const [agents, setAgents] = useState<Agent[]>(AGENTS);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
-  const [view, setView] = useState<"lanes" | "graph" | "timeline">("graph");
+  const [websocketLogs, setWebsocketLogs] = useState<WebSocketLog[]>([]);
+  const [view, setView] = useState<"lanes" | "graph" | "timeline" | "pipeline">("graph");
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -208,9 +218,51 @@ export function AdvancedAgentObservatory() {
   const [graphOffset, setGraphOffset] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [debugImages, setDebugImages] = useState<string[]>([]);
+  const [currentBoard, setCurrentBoard] = useState<string>("");
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const websocketRef = useRef<WebSocket | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+
+  // Fetch debug images from debug_steps folder
+  const fetchDebugImages = async () => {
+    try {
+      const response = await fetch('/api/debug-images');
+      if (response.ok) {
+        const data = await response.json();
+        setDebugImages(data.images || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch debug images:', error);
+    }
+  };
+
+  // Fetch current board state
+  const fetchCurrentBoard = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/current_board');
+      if (response.ok) {
+        const svg = await response.text();
+        setCurrentBoard(svg);
+      }
+    } catch (error) {
+      console.error('Failed to fetch current board:', error);
+    }
+  };
+
+  // Fetch initial data and set up polling
+  useEffect(() => {
+    fetchDebugImages();
+    fetchCurrentBoard();
+    
+    // Poll for updates every 2 seconds
+    const pollInterval = setInterval(() => {
+      fetchDebugImages();
+      fetchCurrentBoard();
+    }, 2000);
+    
+    return () => clearInterval(pollInterval);
+  }, []);
 
   // WebSocket connection for real-time agent updates
   useEffect(() => {
@@ -222,12 +274,29 @@ export function AdvancedAgentObservatory() {
         ws.onopen = () => {
           console.log('WebSocket connected');
           setIsConnected(true);
+          setWebsocketLogs(prev => [...prev.slice(-49), {
+            id: `log-${Date.now()}`,
+            timestamp: new Date(),
+            type: "connection",
+            content: "System connected",
+            raw: { event: "open" }
+          }]);
         };
 
         ws.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
             console.log('Received agent update:', data);
+            
+            // Log system message
+            setWebsocketLogs(prev => [...prev.slice(-49), {
+              id: `log-${Date.now()}`,
+              timestamp: new Date(),
+              type: "message",
+              content: `${data.agent_id} updated status`,
+              agent: data.agent_id,
+              raw: data
+            }]);
             
             // Enhanced agent update with comprehensive data
             setAgents(prev => prev.map(agent => 
@@ -282,6 +351,13 @@ export function AdvancedAgentObservatory() {
         ws.onclose = () => {
           console.log('WebSocket disconnected');
           setIsConnected(false);
+          setWebsocketLogs(prev => [...prev.slice(-49), {
+            id: `log-${Date.now()}`,
+            timestamp: new Date(),
+            type: "connection",
+            content: "System disconnected - reconnecting",
+            raw: { event: "close" }
+          }]);
           // Attempt to reconnect after 3 seconds
           setTimeout(connectWebSocket, 3000);
         };
@@ -289,6 +365,13 @@ export function AdvancedAgentObservatory() {
         ws.onerror = (error) => {
           console.error('WebSocket error:', error);
           setIsConnected(false);
+          setWebsocketLogs(prev => [...prev.slice(-49), {
+            id: `log-${Date.now()}`,
+            timestamp: new Date(),
+            type: "error",
+            content: "Connection error",
+            raw: { error: error.toString() }
+          }]);
         };
       } catch (error) {
         console.error('Failed to connect WebSocket:', error);
@@ -432,7 +515,23 @@ export function AdvancedAgentObservatory() {
   };
 
   const handleAgentClick = (agentId: string) => {
-    setSelectedAgent(selectedAgent === agentId ? null : agentId);
+    // Show brief agent info in compact format
+    const agent = agents.find(a => a.id === agentId);
+    if (agent) {
+      // Create a brief notification or update the compact log
+      setWebsocketLogs(prev => [...prev.slice(-49), {
+        id: `click-${Date.now()}`,
+        timestamp: new Date(),
+        type: "status",
+        content: `${agent.name} selected - ${agent.status}`,
+        agent: agent.id,
+        raw: { 
+          status: agent.status, 
+          confidence: agent.confidence,
+          systemHealth: agent.systemHealth 
+        }
+      }]);
+    }
   };
 
   const handleAgentHover = (agentId: string | null) => {
@@ -454,12 +553,12 @@ export function AdvancedAgentObservatory() {
   // Helper functions for graph visualization
   const getAgentPosition = (agentId: string) => {
     const positions: { [key: string]: { x: number; y: number } } = {
-      "vision-agent": { x: 120, y: 150 },
-      "motion-agent": { x: 380, y: 150 },
-      "coordination-agent": { x: 250, y: 280 },
-      "root-agent": { x: 250, y: 80 }
+      "vision-agent": { x: 150, y: 200 },
+      "motion-agent": { x: 450, y: 200 },
+      "coordination-agent": { x: 300, y: 350 },
+      "root-agent": { x: 300, y: 100 }
     };
-    return positions[agentId] || { x: 250, y: 200 };
+    return positions[agentId] || { x: 300, y: 250 };
   };
 
   const getStatusColor = (status: Agent["status"]) => {
@@ -498,8 +597,8 @@ export function AdvancedAgentObservatory() {
             </motion.div>
           </div>
           <div>
-            <h3 className="text-xl font-semibold text-white">A2A Agent Observatory</h3>
-            <p className="text-sm text-zinc-400">Real-time agent monitoring and coordination</p>
+            <h3 className="text-xl font-semibold text-white">Google A2A Agents</h3>
+            <p className="text-sm text-zinc-400">Live A2A agent status and communication</p>
           </div>
         </div>
         
@@ -508,14 +607,14 @@ export function AdvancedAgentObservatory() {
             <div className="flex items-center gap-2">
               <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
               <span className="text-sm font-medium text-zinc-300">
-                {isConnected ? 'Live' : 'Offline'}
+                {isConnected ? 'Connected' : 'Disconnected'}
               </span>
             </div>
             <div className="w-px h-4 bg-zinc-700" />
             <div className="flex items-center gap-2">
               <div className={`w-3 h-3 rounded-full ${isSimulating ? 'bg-blue-400 animate-pulse' : 'bg-zinc-500'}`} />
               <span className="text-sm font-medium text-zinc-300">
-                {isSimulating ? 'Active' : 'Standby'}
+                {isSimulating ? 'Running' : 'Stopped'}
               </span>
             </div>
           </div>
@@ -528,11 +627,12 @@ export function AdvancedAgentObservatory() {
                 : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30'
             }`}
           >
-            {isSimulating ? 'Stop Simulation' : 'Start Simulation'}
+            {isSimulating ? 'Stop AI' : 'Start AI'}
           </button>
           
+          
           <div className="flex rounded-lg bg-zinc-800/50 p-1 border border-zinc-700">
-            {(["lanes", "graph", "timeline"] as const).map((v) => (
+            {(["lanes", "graph", "timeline", "pipeline"] as const).map((v) => (
               <button
                 key={v}
                 onClick={() => setView(v)}
@@ -686,11 +786,60 @@ export function AdvancedAgentObservatory() {
                 Zoom: {Math.round(graphScale * 100)}%
               </div>
             </div>
+
+            {/* Compact WebSocket Log */}
+            <div className="absolute bottom-3 right-3 w-80 max-h-32 overflow-y-auto z-10">
+              <div className="bg-zinc-900/95 backdrop-blur-sm rounded-lg border border-zinc-700/50 shadow-lg">
+                <div className="flex items-center justify-between p-2 border-b border-zinc-700/50">
+                  <div className="flex items-center gap-2">
+                    <Radio className="size-3 text-blue-400" />
+                    <span className="text-xs font-medium text-white">System Log</span>
+                    <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
+                  </div>
+                  <button
+                    onClick={() => setWebsocketLogs([])}
+                    className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div className="p-2 space-y-1">
+                  {websocketLogs.length === 0 ? (
+                    <div className="text-xs text-zinc-500 text-center py-2">No system activity</div>
+                  ) : (
+                    websocketLogs.slice(-5).reverse().map((log) => (
+                      <div
+                        key={log.id}
+                        className={`flex items-center gap-2 text-xs ${
+                          log.type === 'connection' ? 'text-blue-300' :
+                          log.type === 'message' ? 'text-green-300' :
+                          log.type === 'error' ? 'text-red-300' :
+                          'text-zinc-300'
+                        }`}
+                      >
+                        <div className={`w-1 h-1 rounded-full ${
+                          log.type === 'connection' ? 'bg-blue-400' :
+                          log.type === 'message' ? 'bg-green-400' :
+                          log.type === 'error' ? 'bg-red-400' :
+                          'bg-zinc-400'
+                        }`} />
+                        <span className="truncate">
+                          {log.agent ? `${log.agent}: ` : ''}{log.content}
+                        </span>
+                        <span className="text-zinc-600 text-xs">
+                          {new Date(log.timestamp).toLocaleTimeString()}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
             
             <svg 
               ref={svgRef}
               className="w-full h-full cursor-grab active:cursor-grabbing" 
-              viewBox="0 0 500 400"
+              viewBox="0 0 700 500"
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
@@ -966,7 +1115,7 @@ export function AdvancedAgentObservatory() {
                               <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" style={{animationDelay: '0.2s'}} />
                               <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" style={{animationDelay: '0.4s'}} />
                             </div>
-                            <span className="text-xs font-semibold text-blue-300 uppercase tracking-wide">Processing</span>
+                            <span className="text-xs font-semibold text-blue-300 uppercase tracking-wide">Analyzing</span>
                           </div>
                           <div className="text-xs text-zinc-200 leading-relaxed font-medium">
                             {agent.currentThought.length > 60 ? agent.currentThought.substring(0, 60) + '...' : agent.currentThought}
@@ -982,7 +1131,7 @@ export function AdvancedAgentObservatory() {
               {/* Professional status legend - positioned to avoid overlap */}
               <foreignObject x="20" y="20" width="140" height="90" className="pointer-events-none">
                 <div className="bg-zinc-900/95 backdrop-blur-sm rounded-lg p-2 border border-zinc-700/50 shadow-lg">
-                  <div className="text-xs font-semibold text-white mb-2">System Status</div>
+                  <div className="text-xs font-semibold text-white mb-2">Agent Status</div>
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
                       <div className="w-1.5 h-1.5 rounded-full bg-zinc-400" />
@@ -990,11 +1139,11 @@ export function AdvancedAgentObservatory() {
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-                      <span className="text-xs text-zinc-300">Thinking</span>
+                      <span className="text-xs text-zinc-300">Analyzing</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-1.5 h-1.5 rounded-full bg-orange-400" />
-                      <span className="text-xs text-zinc-300">Processing</span>
+                      <span className="text-xs text-zinc-300">Computing</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
@@ -1005,11 +1154,11 @@ export function AdvancedAgentObservatory() {
               </foreignObject>
               
               {/* Enhanced system analytics - positioned to avoid overlap */}
-              <foreignObject x="340" y="20" width="140" height="120" className="pointer-events-none">
+              <foreignObject x="500" y="20" width="160" height="120" className="pointer-events-none">
                 <div className="bg-zinc-900/95 backdrop-blur-sm rounded-lg p-3 border border-zinc-700/50 shadow-lg">
                   <div className="flex items-center gap-2 mb-2">
                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    <span className="text-xs font-semibold text-emerald-300">System Analytics</span>
+                    <span className="text-xs font-semibold text-emerald-300">Performance</span>
                   </div>
                   <div className="space-y-1">
                     <div className="text-xs text-zinc-400">
@@ -1284,8 +1433,8 @@ export function AdvancedAgentObservatory() {
             {messages.length === 0 ? (
               <div className="text-center py-12 text-zinc-400">
                 <MessageSquare className="size-12 mx-auto mb-4 text-zinc-600" />
-                <div className="text-lg font-medium mb-2">No Agent Communications</div>
-                <div className="text-sm text-zinc-500">Start simulation or connect to see real-time activity</div>
+                <div className="text-lg font-medium mb-2">No Chess AI Activity</div>
+                <div className="text-sm text-zinc-500">Start the AI system to see agent communications</div>
               </div>
             ) : (
               <div className="space-y-3">
@@ -1331,7 +1480,112 @@ export function AdvancedAgentObservatory() {
             )}
           </motion.div>
         )}
+
+        {view === "pipeline" && (
+          <motion.div
+            key="pipeline"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="space-y-6"
+          >
+            <div className="text-center mb-6">
+              <h3 className="text-lg font-semibold text-white mb-2">Chess Detection Pipeline</h3>
+              <p className="text-sm text-zinc-400">Live processing steps and current board state</p>
+            </div>
+
+            {/* Simple 3-image layout */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Debug Image 1 */}
+              <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-700/50">
+                <div className="flex items-center gap-2 mb-4">
+                  <Eye className="size-5 text-blue-400" />
+                  <h4 className="text-lg font-semibold text-white">Debug Step 1</h4>
+                </div>
+                
+                {debugImages.length >= 1 ? (
+                  <div className="relative">
+                    <img
+                      src={`/api/debug-image?path=${encodeURIComponent(debugImages[debugImages.length - 2])}`}
+                      alt="Debug step 1"
+                      className="w-full h-64 object-cover rounded-lg border border-zinc-600/30"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMzMzIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlIG5vdCBmb3VuZDwvdGV4dD48L3N2Zz4=';
+                      }}
+                    />
+                    <div className="absolute top-2 right-2 bg-zinc-900/80 text-white text-xs px-2 py-1 rounded">
+                      {new Date().toLocaleTimeString()}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-16 text-zinc-500">
+                    <Eye className="size-12 mx-auto mb-3 text-zinc-600" />
+                    <div className="text-sm">No debug image available</div>
+                  </div>
+                )}
+              </div>
+
+              {/* Debug Image 2 */}
+              <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-700/50">
+                <div className="flex items-center gap-2 mb-4">
+                  <Eye className="size-5 text-blue-400" />
+                  <h4 className="text-lg font-semibold text-white">Debug Step 2</h4>
+                </div>
+                
+                {debugImages.length >= 2 ? (
+                  <div className="relative">
+                    <img
+                      src={`/api/debug-image?path=${encodeURIComponent(debugImages[debugImages.length - 1])}`}
+                      alt="Debug step 2"
+                      className="w-full h-64 object-cover rounded-lg border border-zinc-600/30"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMzMzIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlIG5vdCBmb3VuZDwvdGV4dD48L3N2Zz4=';
+                      }}
+                    />
+                    <div className="absolute top-2 right-2 bg-zinc-900/80 text-white text-xs px-2 py-1 rounded">
+                      {new Date().toLocaleTimeString()}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-16 text-zinc-500">
+                    <Eye className="size-12 mx-auto mb-3 text-zinc-600" />
+                    <div className="text-sm">No debug image available</div>
+                  </div>
+                )}
+              </div>
+
+              {/* Current Board */}
+              <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-700/50">
+                <div className="flex items-center gap-2 mb-4">
+                  <Target className="size-5 text-green-400" />
+                  <h4 className="text-lg font-semibold text-white">Current Board</h4>
+                </div>
+                
+                {currentBoard ? (
+                  <div className="relative">
+                    <div 
+                      className="w-full h-64 bg-zinc-800/30 rounded-lg border border-zinc-600/30 flex items-center justify-center"
+                      dangerouslySetInnerHTML={{ __html: currentBoard }}
+                    />
+                    <div className="absolute top-2 right-2 bg-zinc-900/80 text-white text-xs px-2 py-1 rounded">
+                      Live
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-16 text-zinc-500">
+                    <Target className="size-12 mx-auto mb-3 text-zinc-600" />
+                    <div className="text-sm">No board data available</div>
+                    <div className="text-xs text-zinc-600 mt-1">Connect to chess detection service</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
       </AnimatePresence>
+
     </div>
   );
 }
