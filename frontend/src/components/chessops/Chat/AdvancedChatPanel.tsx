@@ -1,6 +1,17 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { sendToAgent, AgentRequest, initializeSession } from "@/lib/api";
+
+function TimeDisplay({ timestamp }: { timestamp: number }) {
+  const [timeString, setTimeString] = useState<string>("");
+  
+  useEffect(() => {
+    setTimeString(new Date(timestamp).toLocaleTimeString());
+  }, [timestamp]);
+  
+  return <span>{timeString}</span>;
+}
 import { 
   Send, 
   Bot, 
@@ -36,29 +47,29 @@ interface ChatEndpoint {
 
 const CHAT_ENDPOINTS: ChatEndpoint[] = [
   {
-    name: "Quantum Planner",
-    url: "/api/quantum-planner",
-    description: "Strategic planning and decision optimization",
+    name: "adk",
+    url: "http://localhost:8000/run",
+    description: "Main ADK/A2A agent for general assistance",
     icon: <Brain className="size-4" />,
     color: "from-blue-500 to-cyan-500"
   },
   {
-    name: "Neural Worldview",
-    url: "/api/neural-worldview", 
-    description: "Context understanding and world modeling",
+    name: "quantum_planner", 
+    url: "http://localhost:8000/run",
+    description: "Strategic planning and decision optimization",
     icon: <Network className="size-4" />,
     color: "from-purple-500 to-pink-500"
   },
   {
-    name: "Synthetic Personality",
-    url: "/api/synthetic-personality",
-    description: "Human-like interaction and personality",
+    name: "neural_worldview",
+    url: "http://localhost:8000/run",
+    description: "Context understanding and world modeling",
     icon: <Zap className="size-4" />,
     color: "from-emerald-500 to-teal-500"
   },
   {
-    name: "Cognitive Analyzer",
-    url: "/api/cognitive-analyzer",
+    name: "cognitive_analyzer",
+    url: "http://localhost:8000/run",
     description: "Deep analysis and pattern recognition",
     icon: <Cpu className="size-4" />,
     color: "from-orange-500 to-red-500"
@@ -80,6 +91,9 @@ export function AdvancedChatPanel() {
   const [isLoading, setIsLoading] = useState(false);
   const [selectedEndpoint, setSelectedEndpoint] = useState<ChatEndpoint | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [userId] = useState(() => `u_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+  const [sessionId] = useState(() => `s_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+  const [sessionInitialized, setSessionInitialized] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -102,40 +116,81 @@ export function AdvancedChatPanel() {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    const currentInput = input.trim();
     setInput("");
     setIsLoading(true);
 
-    // Simulate agent response
-    setTimeout(() => {
+    try {
+      // Initialize session if not already done
+      if (!sessionInitialized) {
+        const appName = selectedEndpoint?.name || "adk";
+        const initialized = await initializeSession(userId, sessionId, appName);
+        if (!initialized) {
+          throw new Error("Failed to initialize session with the agent");
+        }
+        setSessionInitialized(true);
+        console.log("Session initialized successfully");
+      }
+
+      // Send to ADK/A2A agent
+      const agentRequest: AgentRequest = {
+        app_name: selectedEndpoint?.name || "adk",
+        user_id: userId,
+        session_id: sessionId,
+        new_message: {
+          role: "user",
+          parts: [{
+            text: currentInput
+          }]
+        }
+      };
+
+      const response = await sendToAgent(agentRequest);
+      
       const agentResponse: ChatMessage = {
         id: `agent-${Date.now()}`,
-        content: generateAgentResponse(input.trim()),
+        content: response.response,
         role: "assistant",
         timestamp: new Date(),
-        agent: selectedEndpoint?.name || "System",
-        confidence: Math.random() * 0.3 + 0.7,
+        agent: response.agent || selectedEndpoint?.name || "System",
+        confidence: response.confidence || 0.8,
         isTyping: false
       };
 
       setMessages(prev => [...prev, agentResponse]);
+    } catch (error) {
+      console.error("Failed to send message to agent:", error);
+      
+      let errorMessage = "Sorry, I encountered an error communicating with the agent.";
+      
+      if (error instanceof Error) {
+        if (error.message.includes("Failed to fetch")) {
+          errorMessage = "Unable to connect to the agent server. Please make sure the ADK/A2A server is running on localhost:8000.";
+        } else if (error.message.includes("Agent API error")) {
+          errorMessage = `Agent API error: ${error.message}`;
+        } else if (error.message.includes("Failed to initialize session")) {
+          errorMessage = "Failed to initialize session with the agent. Please try again.";
+        } else {
+          errorMessage = `Error: ${error.message}`;
+        }
+      }
+      
+      const errorResponse: ChatMessage = {
+        id: `error-${Date.now()}`,
+        content: errorMessage,
+        role: "assistant",
+        timestamp: new Date(),
+        agent: "System",
+        confidence: 0.0,
+        isTyping: false
+      };
+
+      setMessages(prev => [...prev, errorResponse]);
+    } finally {
       setIsLoading(false);
-    }, 1000 + Math.random() * 2000);
+    }
   };
 
-  const generateAgentResponse = (userInput: string): string => {
-    const responses = [
-      "I'm analyzing your request through our quantum planning algorithms. The optimal approach would be to...",
-      "Based on my neural worldview analysis, I can see several pathways forward. Let me break this down...",
-      "From a synthetic personality perspective, I understand your concern. Here's how I would approach this...",
-      "My cognitive analysis suggests this is a complex problem requiring multi-dimensional thinking. Consider...",
-      "The strategic optimization matrix indicates several viable solutions. The most efficient path would be...",
-      "I'm processing this through our distributed knowledge graph. The correlation analysis shows...",
-      "Based on my environmental context processing, I can recommend the following strategic approach...",
-      "My emotional resonance parameters suggest this requires a nuanced response. Here's my analysis..."
-    ];
-
-    return responses[Math.floor(Math.random() * responses.length)];
-  };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -155,10 +210,16 @@ export function AdvancedChatPanel() {
         confidence: 1.0
       }
     ]);
+    setSessionInitialized(false);
+  };
+
+  const handleEndpointChange = (endpoint: ChatEndpoint) => {
+    setSelectedEndpoint(endpoint);
+    setSessionInitialized(false); // Reset session when changing endpoint
   };
 
   return (
-    <div className="rounded-2xl bg-zinc-950 shadow-soft ring-1 ring-white/10 flex flex-col h-96">
+    <div className="rounded-2xl bg-zinc-950 shadow-soft ring-1 ring-white/10 flex flex-col h-80">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
         <div className="flex items-center gap-3">
@@ -198,7 +259,7 @@ export function AdvancedChatPanel() {
               {CHAT_ENDPOINTS.map((endpoint) => (
                 <button
                   key={endpoint.name}
-                  onClick={() => setSelectedEndpoint(endpoint)}
+                  onClick={() => handleEndpointChange(endpoint)}
                   className={`p-3 rounded-lg border transition-all ${
                     selectedEndpoint?.name === endpoint.name
                       ? 'border-fuchsia-500/50 bg-fuchsia-500/10'
@@ -261,7 +322,7 @@ export function AdvancedChatPanel() {
                 </div>
                 
                 <div className="text-xs text-zinc-500 mt-1">
-                  {message.timestamp.toLocaleTimeString()}
+                  <TimeDisplay timestamp={message.timestamp.getTime()} />
                 </div>
               </div>
 
@@ -289,7 +350,10 @@ export function AdvancedChatPanel() {
               <div className="flex items-center gap-2">
                 <Loader2 className="size-4 animate-spin" />
                 <span className="text-sm text-zinc-400">
-                  {selectedEndpoint?.name || "System"} is thinking...
+                  {!sessionInitialized 
+                    ? "Initializing session..." 
+                    : `${selectedEndpoint?.name || "System"} is thinking...`
+                  }
                 </span>
               </div>
             </div>

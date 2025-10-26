@@ -1,5 +1,16 @@
 "use client";
 import { AgentEvent } from "./types";
+import { useState, useEffect } from "react";
+
+function TimeDisplay({ timestamp }: { timestamp: number }) {
+  const [timeString, setTimeString] = useState<string>("");
+  
+  useEffect(() => {
+    setTimeString(new Date(timestamp).toLocaleTimeString());
+  }, [timestamp]);
+  
+  return <span>{timeString}</span>;
+}
 
 export function AgentLanes({ events }: { events: AgentEvent[] }) {
   const agents = Array.from(new Set(events.map(e => e.agent)));
@@ -14,7 +25,7 @@ export function AgentLanes({ events }: { events: AgentEvent[] }) {
               <div key={e.id} className="rounded-lg bg-zinc-900 p-2">
                 <div className="flex items-center justify-between text-xs text-zinc-400">
                   <span>{e.kind}</span>
-                  <span>{new Date(e.ts).toLocaleTimeString()}</span>
+                  <TimeDisplay timestamp={e.ts} />
                 </div>
                 {e.summary && <div className="mt-1 text-zinc-200">{e.summary}</div>}
               </div>

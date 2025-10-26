@@ -3,6 +3,16 @@ import { useState, useEffect } from "react";
 import { RefreshCw, Eye, EyeOff, ArrowRight, Brain } from "lucide-react";
 import { apiCurrentBoardSvg, apiVisualizeNextMove, apiNextMove } from "@/lib/api";
 
+function TimeDisplay({ timestamp }: { timestamp: number }) {
+  const [timeString, setTimeString] = useState<string>("");
+  
+  useEffect(() => {
+    setTimeString(new Date(timestamp).toLocaleTimeString());
+  }, [timestamp]);
+  
+  return <span>{timeString}</span>;
+}
+
 interface ChessBoardVisualizerProps {
   className?: string;
 }
@@ -73,7 +83,7 @@ export function ChessBoardVisualizer({ className }: ChessBoardVisualizerProps) {
         <div className="flex items-center gap-2">
           {lastUpdate && (
             <span className="text-xs text-zinc-400">
-              Updated: {lastUpdate.toLocaleTimeString()}
+              Updated: <TimeDisplay timestamp={lastUpdate.getTime()} />
             </span>
           )}
           <button

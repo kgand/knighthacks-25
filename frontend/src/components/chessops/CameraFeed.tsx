@@ -143,8 +143,8 @@ export function CameraFeed({ title, deviceId, overlays }: Props) {
   };
 
   return (
-    <div className="relative rounded-2xl bg-zinc-950 shadow-soft ring-1 ring-white/10">
-      <div className="flex items-center justify-between border-b border-white/10 px-3 py-2 text-sm">
+    <div className="relative rounded-2xl bg-zinc-950 shadow-soft ring-1 ring-white/10 h-full flex flex-col">
+      <div className="flex items-center justify-between border-b border-white/10 px-3 py-2 text-sm flex-shrink-0">
         <span className="font-medium">{title}</span>
         <div className="flex items-center gap-2">
           <span className={`text-xs ${status==="connected"?"text-emerald-400":"text-amber-400"}`}>
@@ -160,10 +160,10 @@ export function CameraFeed({ title, deviceId, overlays }: Props) {
         </div>
       </div>
 
-      <div className="relative">
+      <div className="relative flex-1 min-h-0">
         <video 
           ref={videoRef} 
-          className="aspect-video w-full rounded-b-2xl bg-black object-cover" 
+          className="w-full h-full rounded-b-2xl bg-black object-cover" 
           autoPlay 
           muted 
           playsInline 
@@ -176,7 +176,7 @@ export function CameraFeed({ title, deviceId, overlays }: Props) {
           }}
         />
         {status !== "connected" && (
-          <div className="flex aspect-video w-full items-center justify-center rounded-b-2xl bg-black">
+          <div className="flex w-full h-full items-center justify-center rounded-b-2xl bg-black">
             {status === "error" ? (
               <div className="flex flex-col items-center gap-2 text-zinc-400">
                 <VideoOff className="size-8" />
