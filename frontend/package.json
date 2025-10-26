@@ -16,8 +16,13 @@
     "@radix-ui/react-progress": "^1.0.3",
     "@radix-ui/react-scroll-area": "^1.1.0",
     "@tanstack/react-table": "^8.20.5",
+    "@tsparticles/basic": "^3.9.1",
+    "@tsparticles/confetti": "^3.9.1",
+    "@tsparticles/engine": "^3.9.1",
+    "@tsparticles/react": "^3.0.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
+    "framer-motion": "^12.23.24",
     "hls.js": "^1.5.13",
     "lucide-react": "^0.474.0",
     "next": "14.2.15",
@@ -26,8 +31,8 @@
     "recharts": "^2.12.7",
     "tailwind-merge": "^2.5.2",
     "tailwindcss-animate": "^1.0.7",
-    "zustand": "^4.5.5",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "zustand": "^4.5.5"
   },
   "devDependencies": {
     "@types/node": "^22.7.4",
@@ -41,4 +46,3 @@
     "typescript": "^5.6.3"
   }
 }
-

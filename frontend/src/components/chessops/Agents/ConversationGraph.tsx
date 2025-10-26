@@ -1,5 +1,5 @@
 "use client";
-import { AgentEvent } from "./AgentObservatory";
+import { AgentEvent } from "./types";
 
 export function ConversationGraph({ events }: { events: AgentEvent[] }) {
   // Minimal stub: list edges (parent -> id). Replace with real graph viz later.

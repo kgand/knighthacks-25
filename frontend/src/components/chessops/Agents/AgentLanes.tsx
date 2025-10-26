@@ -1,5 +1,5 @@
 "use client";
-import { AgentEvent } from "./AgentObservatory";
+import { AgentEvent } from "./types";
 
 export function AgentLanes({ events }: { events: AgentEvent[] }) {
   const agents = Array.from(new Set(events.map(e => e.agent)));
