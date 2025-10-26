@@ -972,6 +972,9 @@ video {
   --tw-bg-opacity: 1;
   background-color: rgb(168 85 247 / var(--tw-bg-opacity, 1));
 }
+.bg-zinc-800\/50 {
+  background-color: rgb(39 39 42 / 0.5);
+}
 .bg-gradient-to-r {
   background-image: linear-gradient(to right, var(--tw-gradient-stops));
 }

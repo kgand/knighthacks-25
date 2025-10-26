@@ -33,7 +33,7 @@ interface Agent {
   name: string;
   type: AgentType;
   status: "idle" | "thinking" | "communicating" | "processing";
-  lastActivity: Date;
+  lastActivity: number;
   messageCount: number;
   connections: string[];
   currentThought?: string;
@@ -47,7 +47,7 @@ interface AgentMessage {
   from: string;
   to: string;
   content: string;
-  timestamp: Date;
+  timestamp: number;
   type: "thought" | "action" | "query" | "response";
   confidence: number;
 }
@@ -58,7 +58,7 @@ const AGENTS: Agent[] = [
     name: "Quantum Strategic Planner",
     type: "quantum-planner",
     status: "idle",
-    lastActivity: new Date(),
+    lastActivity: 0,
     messageCount: 0,
     connections: ["neural-worldview", "synthetic-personality"],
     confidence: 0.95,
@@ -70,7 +70,7 @@ const AGENTS: Agent[] = [
     name: "Neural Worldview Engine",
     type: "neural-worldview", 
     status: "idle",
-    lastActivity: new Date(),
+    lastActivity: 0,
     messageCount: 0,
     connections: ["quantum-planner", "cognitive-analyzer"],
     confidence: 0.88,
@@ -82,7 +82,7 @@ const AGENTS: Agent[] = [
     name: "Synthetic Personality Core",
     type: "synthetic-personality",
     status: "idle", 
-    lastActivity: new Date(),
+    lastActivity: 0,
     messageCount: 0,
     connections: ["quantum-planner", "strategic-optimizer"],
     confidence: 0.92,
@@ -94,7 +94,7 @@ const AGENTS: Agent[] = [
     name: "Cognitive Analysis Engine",
     type: "cognitive-analyzer",
     status: "idle",
-    lastActivity: new Date(),
+    lastActivity: 0,
     messageCount: 0,
     connections: ["neural-worldview", "strategic-optimizer"],
     confidence: 0.87,
@@ -106,7 +106,7 @@ const AGENTS: Agent[] = [
     name: "Strategic Optimization Matrix",
     type: "strategic-optimizer",
     status: "idle",
-    lastActivity: new Date(),
+    lastActivity: 0,
     messageCount: 0,
     connections: ["synthetic-personality", "cognitive-analyzer"],
     confidence: 0.91,
@@ -140,19 +140,20 @@ export function AdvancedAgentObservatory() {
       const randomAgent = idleAgents[Math.floor(Math.random() * idleAgents.length)];
       const targetAgent = randomAgent.connections[Math.floor(Math.random() * randomAgent.connections.length)];
       
+      const now = Date.now();
       setAgents(prev => prev.map(agent => 
         agent.id === randomAgent.id 
-          ? { ...agent, status: "thinking" as const, lastActivity: new Date() }
+          ? { ...agent, status: "thinking" as const, lastActivity: now }
           : agent
       ));
 
       // Create a message between agents
       const newMessage: AgentMessage = {
-        id: `msg-${Date.now()}`,
+        id: `msg-${now}`,
         from: randomAgent.id,
         to: targetAgent,
         content: generateAgentThought(randomAgent.type),
-        timestamp: new Date(),
+        timestamp: now,
         type: "thought",
         confidence: Math.random() * 0.3 + 0.7
       };
@@ -230,11 +231,11 @@ export function AdvancedAgentObservatory() {
 
   const getStatusColor = (status: Agent["status"]) => {
     switch (status) {
-      case "idle": return "text-muted-foreground";
-      case "thinking": return "text-blue-600";
-      case "communicating": return "text-green-600";
-      case "processing": return "text-orange-600";
-      default: return "text-muted-foreground";
+      case "idle": return "text-zinc-400";
+      case "thinking": return "text-blue-400";
+      case "communicating": return "text-green-400";
+      case "processing": return "text-orange-400";
+      default: return "text-zinc-400";
     }
   };
 
@@ -261,35 +262,24 @@ export function AdvancedAgentObservatory() {
   }
 
   return (
-    <div className="rounded-xl border bg-card">
-      <div className="flex items-center justify-between border-b p-6">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-            <Network className="h-4 w-4 text-primary" />
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold">Agent Observatory</h3>
-            <p className="text-sm text-muted-foreground">Multi-agent coordination system</p>
-          </div>
-        </div>
-        
-        <div className="flex items-center gap-3">
+    <div className="rounded-2xl bg-zinc-950 shadow-soft ring-1 ring-white/10">
+      <div className="flex items-center justify-between border-b border-white/10 px-3 py-2 text-sm">
+        <div className="font-medium">A2A Agent Observatory</div>
+        <div className="flex items-center gap-2">
           <div className="flex items-center gap-2">
-            <div className={`h-2 w-2 rounded-full ${isSimulating ? 'bg-green-500 animate-pulse' : 'bg-muted-foreground'}`} />
-            <span className="text-sm text-muted-foreground">
+            <div className={`w-2 h-2 rounded-full ${isSimulating ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-500'}`} />
+            <span className="text-xs text-zinc-400">
               {isSimulating ? 'Active' : 'Standby'}
             </span>
           </div>
           
-          <div className="flex rounded-md border p-1">
+          <div className="flex rounded-lg bg-zinc-800 p-1">
             {(["graph", "lanes", "timeline"] as const).map((v) => (
               <button
                 key={v}
                 onClick={() => setView(v)}
-                className={`rounded-sm px-3 py-1 text-sm font-medium transition-colors ${
-                  view === v 
-                    ? 'bg-primary text-primary-foreground' 
-                    : 'text-muted-foreground hover:text-foreground'
+                className={`rounded-md px-2 py-1 text-xs capitalize transition-colors ${
+                  view === v ? 'bg-white/10 text-white' : 'text-zinc-400 hover:text-white'
                 }`}
               >
                 {v === 'graph' ? 'Network' : v === 'lanes' ? 'Agents' : 'Activity'}
@@ -299,28 +289,18 @@ export function AdvancedAgentObservatory() {
           
           <button
             onClick={toggleSimulation}
-            className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+            className={`rounded-lg px-3 py-1 text-xs font-medium transition-colors ${
               isSimulating 
-                ? 'bg-destructive/10 text-destructive hover:bg-destructive/20' 
-                : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                ? 'bg-red-500/20 text-red-300 hover:bg-red-500/25' 
+                : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/25'
             }`}
           >
-            {isSimulating ? (
-              <>
-                <div className="h-2 w-2 rounded-full bg-destructive" />
-                Stop
-              </>
-            ) : (
-              <>
-                <div className="h-2 w-2 rounded-full bg-green-500" />
-                Start
-              </>
-            )}
+            {isSimulating ? 'Stop' : 'Start'}
           </button>
         </div>
       </div>
 
-      <div className="p-6">
+      <div className="p-3">
         <AnimatePresence mode="wait">
           {view === "graph" && (
             <motion.div
@@ -330,15 +310,15 @@ export function AdvancedAgentObservatory() {
               exit={{ opacity: 0, scale: 0.95 }}
               className="relative"
             >
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {agents.map((agent, index) => (
                   <motion.div
                     key={agent.id}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.1 }}
-                    className={`group relative rounded-lg border bg-card/50 p-4 cursor-pointer transition-all hover:shadow-md ${
-                      selectedAgent === agent.id ? 'ring-2 ring-primary' : 'hover:border-primary/50'
+                    className={`group relative rounded-xl border border-white/10 bg-zinc-900/50 p-4 cursor-pointer transition-all hover:border-white/20 ${
+                      selectedAgent === agent.id ? 'ring-2 ring-fuchsia-500/50' : 'hover:border-fuchsia-500/50'
                     }`}
                     onClick={() => setSelectedAgent(selectedAgent === agent.id ? null : agent.id)}
                   >
@@ -348,8 +328,8 @@ export function AdvancedAgentObservatory() {
                           {agent.icon}
                         </div>
                         <div>
-                          <h4 className="font-medium text-sm">{agent.name}</h4>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <h4 className="font-medium text-sm text-zinc-100">{agent.name}</h4>
+                          <div className="flex items-center gap-2 text-xs text-zinc-400">
                             {getStatusIcon(agent.status)}
                             <span className={getStatusColor(agent.status)}>
                               {agent.status.charAt(0).toUpperCase() + agent.status.slice(1)}
@@ -359,20 +339,20 @@ export function AdvancedAgentObservatory() {
                       </div>
                       
                       <div className="text-right">
-                        <div className="text-xs text-muted-foreground">Confidence</div>
-                        <div className="text-sm font-medium">{Math.round(agent.confidence * 100)}%</div>
+                        <div className="text-xs text-zinc-400">Confidence</div>
+                        <div className="text-sm font-medium text-zinc-100">{Math.round(agent.confidence * 100)}%</div>
                       </div>
                     </div>
 
                     <div className="space-y-2">
                       <div className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground">Messages</span>
-                        <span className="font-medium">{agent.messageCount}</span>
+                        <span className="text-zinc-400">Messages</span>
+                        <span className="font-medium text-zinc-100">{agent.messageCount}</span>
                       </div>
                       
                       <div className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground">Connections</span>
-                        <span className="font-medium">{agent.connections.length}</span>
+                        <span className="text-zinc-400">Connections</span>
+                        <span className="font-medium text-zinc-100">{agent.connections.length}</span>
                       </div>
                     </div>
 
@@ -385,14 +365,14 @@ export function AdvancedAgentObservatory() {
                       >
                         <div className="space-y-3">
                           <div>
-                            <div className="text-xs text-muted-foreground mb-2">Connected Agents</div>
+                            <div className="text-xs text-zinc-400 mb-2">Connected Agents</div>
                             <div className="flex flex-wrap gap-1">
                               {agent.connections.map((connId) => {
                                 const connAgent = agents.find(a => a.id === connId);
                                 return (
                                   <span
                                     key={connId}
-                                    className="inline-flex items-center rounded-md bg-secondary px-2 py-1 text-xs font-medium"
+                                    className="inline-flex items-center rounded-md bg-zinc-800 px-2 py-1 text-xs font-medium text-zinc-300"
                                   >
                                     {connAgent?.name.split(' ')[0]}
                                   </span>
@@ -403,8 +383,8 @@ export function AdvancedAgentObservatory() {
                           
                           {agent.currentThought && (
                             <div>
-                              <div className="text-xs text-muted-foreground mb-2">Current Thought</div>
-                              <div className="text-sm text-foreground italic bg-muted/50 rounded-md p-2">
+                              <div className="text-xs text-zinc-400 mb-2">Current Thought</div>
+                              <div className="text-sm text-zinc-300 italic bg-zinc-800/50 rounded-md p-2">
                                 "{agent.currentThought}"
                               </div>
                             </div>
@@ -424,7 +404,7 @@ export function AdvancedAgentObservatory() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="space-y-4"
+              className="space-y-3"
             >
               {agents.map((agent, index) => (
                 <motion.div
@@ -432,8 +412,8 @@ export function AdvancedAgentObservatory() {
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: index * 0.1 }}
-                  className={`rounded-lg border bg-card p-4 transition-all hover:shadow-sm ${
-                    selectedAgent === agent.id ? 'ring-2 ring-primary' : 'hover:border-primary/50'
+                  className={`rounded-xl border border-white/10 bg-zinc-900/50 p-4 transition-all hover:border-white/20 ${
+                    selectedAgent === agent.id ? 'ring-2 ring-fuchsia-500/50' : 'hover:border-fuchsia-500/50'
                   }`}
                   onClick={() => setSelectedAgent(selectedAgent === agent.id ? null : agent.id)}
                 >
@@ -443,8 +423,8 @@ export function AdvancedAgentObservatory() {
                         {agent.icon}
                       </div>
                       <div>
-                        <h4 className="font-medium">{agent.name}</h4>
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <h4 className="font-medium text-zinc-100">{agent.name}</h4>
+                        <div className="flex items-center gap-2 text-sm text-zinc-400">
                           {getStatusIcon(agent.status)}
                           <span className={getStatusColor(agent.status)}>
                             {agent.status.charAt(0).toUpperCase() + agent.status.slice(1)}
@@ -455,12 +435,12 @@ export function AdvancedAgentObservatory() {
                     
                     <div className="flex items-center gap-6 text-sm">
                       <div className="text-right">
-                        <div className="text-xs text-muted-foreground">Confidence</div>
-                        <div className="font-medium">{Math.round(agent.confidence * 100)}%</div>
+                        <div className="text-xs text-zinc-400">Confidence</div>
+                        <div className="font-medium text-zinc-100">{Math.round(agent.confidence * 100)}%</div>
                       </div>
                       <div className="text-right">
-                        <div className="text-xs text-muted-foreground">Messages</div>
-                        <div className="font-medium">{agent.messageCount}</div>
+                        <div className="text-xs text-zinc-400">Messages</div>
+                        <div className="font-medium text-zinc-100">{agent.messageCount}</div>
                       </div>
                     </div>
                   </div>
@@ -478,10 +458,10 @@ export function AdvancedAgentObservatory() {
               className="space-y-3"
             >
               {messages.length === 0 ? (
-                <div className="text-center py-12">
-                  <MessageSquare className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                  <div className="text-lg font-medium">No agent communications yet</div>
-                  <div className="text-sm text-muted-foreground mt-2">Start simulation to see activity</div>
+                <div className="text-center py-8 text-zinc-400">
+                  <MessageSquare className="size-8 mx-auto mb-2" />
+                  <div>No agent communications yet</div>
+                  <div className="text-xs text-zinc-500 mt-1">Start simulation to see activity</div>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -495,25 +475,25 @@ export function AdvancedAgentObservatory() {
                         initial={{ opacity: 0, x: -20 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: index * 0.05 }}
-                        className="flex items-start gap-3 p-4 rounded-lg border bg-card/50"
+                        className="flex items-start gap-3 p-3 bg-zinc-900/50 rounded-lg"
                       >
                         <div className="flex items-center gap-2">
-                          <div className={`h-2 w-2 rounded-full ${
-                            message.type === 'thought' ? 'bg-blue-500' :
-                            message.type === 'action' ? 'bg-green-500' :
-                            message.type === 'query' ? 'bg-orange-500' : 'bg-purple-500'
+                          <div className={`w-2 h-2 rounded-full ${
+                            message.type === 'thought' ? 'bg-blue-400' :
+                            message.type === 'action' ? 'bg-green-400' :
+                            message.type === 'query' ? 'bg-orange-400' : 'bg-purple-400'
                           }`} />
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-xs text-zinc-400">
                             {fromAgent?.name.split(' ')[0]} → {toAgent?.name.split(' ')[0]}
                           </span>
                         </div>
                         <div className="flex-1">
-                          <div className="text-sm">{message.content}</div>
-                          <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                            <span>
-                              {message.timestamp.toLocaleTimeString()}
+                          <div className="text-sm text-zinc-300">{message.content}</div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-xs text-zinc-500">
+                              {isClient ? new Date(message.timestamp).toLocaleTimeString() : '...'}
                             </span>
-                            <span>
+                            <span className="text-xs text-zinc-500">
                               Confidence: {Math.round(message.confidence * 100)}%
                             </span>
                           </div>

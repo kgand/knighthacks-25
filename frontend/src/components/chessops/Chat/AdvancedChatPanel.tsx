@@ -159,34 +159,24 @@ export function AdvancedChatPanel() {
   };
 
   return (
-    <div className="rounded-xl border bg-card flex flex-col h-96">
+    <div className="rounded-2xl bg-zinc-950 shadow-soft ring-1 ring-white/10 flex flex-col h-96">
       {/* Header */}
-      <div className="flex items-center justify-between border-b p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-            <MessageSquare className="h-4 w-4 text-primary" />
-          </div>
-          <div>
-            <h3 className="font-semibold">Agent Chat</h3>
-            <p className="text-sm text-muted-foreground">Multi-agent communication interface</p>
-          </div>
-        </div>
-        
+      <div className="flex items-center justify-between border-b border-white/10 px-3 py-2 text-sm">
+        <div className="font-medium">Chat</div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowSettings(!showSettings)}
-            className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-muted"
+            className="rounded-lg p-1.5 hover:bg-zinc-800 transition-colors"
             title="Agent Settings"
           >
-            <Settings className="h-4 w-4" />
-            {showSettings ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            <Settings className="size-4" />
           </button>
           <button
             onClick={clearChat}
-            className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-muted text-destructive"
+            className="rounded-lg p-1.5 hover:bg-zinc-800 transition-colors"
             title="Clear Chat"
           >
-            <Trash2 className="h-4 w-4" />
+            <Trash2 className="size-4" />
           </button>
         </div>
       </div>
@@ -198,27 +188,27 @@ export function AdvancedChatPanel() {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            className="border-b p-4"
+            className="border-b border-white/10 p-4"
           >
-            <div className="text-sm font-medium mb-3">Select Agent Endpoint</div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="text-sm font-medium text-zinc-300 mb-3">Select Agent Endpoint</div>
+            <div className="grid grid-cols-2 gap-2">
               {CHAT_ENDPOINTS.map((endpoint) => (
                 <button
                   key={endpoint.name}
                   onClick={() => setSelectedEndpoint(endpoint)}
                   className={`p-3 rounded-lg border transition-all ${
                     selectedEndpoint?.name === endpoint.name
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border hover:border-primary/50'
+                      ? 'border-fuchsia-500/50 bg-fuchsia-500/10'
+                      : 'border-white/10 hover:border-white/20'
                   }`}
                 >
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className={`p-1.5 rounded-md bg-gradient-to-br ${endpoint.color} shadow-sm`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className={`p-1 rounded bg-gradient-to-r ${endpoint.color}`}>
                       {endpoint.icon}
                     </div>
-                    <span className="text-sm font-medium">{endpoint.name}</span>
+                    <span className="text-xs font-medium">{endpoint.name}</span>
                   </div>
-                  <div className="text-xs text-muted-foreground">{endpoint.description}</div>
+                  <div className="text-xs text-zinc-400">{endpoint.description}</div>
                 </button>
               ))}
             </div>
@@ -241,8 +231,8 @@ export function AdvancedChatPanel() {
             >
               {message.role !== "user" && (
                 <div className="flex-shrink-0">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                    <Bot className="h-4 w-4 text-primary" />
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-r from-fuchsia-500 to-purple-500 flex items-center justify-center">
+                    <Bot className="size-4" />
                   </div>
                 </div>
               )}
@@ -252,13 +242,13 @@ export function AdvancedChatPanel() {
               }`}>
                 <div className={`rounded-lg p-3 ${
                   message.role === "user" 
-                    ? "bg-primary text-primary-foreground" 
-                    : "bg-muted"
+                    ? "bg-fuchsia-500/20 text-fuchsia-100" 
+                    : "bg-zinc-800 text-zinc-100"
                 }`}>
                   <div className="text-sm">{message.content}</div>
                   
                   {message.agent && (
-                    <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2 mt-2 text-xs text-zinc-400">
                       <span>{message.agent}</span>
                       {message.confidence && (
                         <span>• {Math.round(message.confidence * 100)}% confidence</span>
@@ -267,15 +257,15 @@ export function AdvancedChatPanel() {
                   )}
                 </div>
                 
-                <div className="text-xs text-muted-foreground mt-1">
+                <div className="text-xs text-zinc-500 mt-1">
                   {message.timestamp.toLocaleTimeString()}
                 </div>
               </div>
 
               {message.role === "user" && (
                 <div className="flex-shrink-0">
-                  <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center">
-                    <User className="h-4 w-4" />
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 flex items-center justify-center">
+                    <User className="size-4" />
                   </div>
                 </div>
               )}
@@ -289,13 +279,13 @@ export function AdvancedChatPanel() {
             animate={{ opacity: 1, y: 0 }}
             className="flex gap-3 justify-start"
           >
-            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-              <Bot className="h-4 w-4 text-primary" />
+            <div className="w-8 h-8 rounded-full bg-gradient-to-r from-fuchsia-500 to-purple-500 flex items-center justify-center">
+              <Bot className="size-4" />
             </div>
-            <div className="bg-muted rounded-lg p-3">
+            <div className="bg-zinc-800 rounded-lg p-3">
               <div className="flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                <span className="text-sm text-zinc-400">
                   {selectedEndpoint?.name || "System"} is thinking...
                 </span>
               </div>
@@ -307,7 +297,7 @@ export function AdvancedChatPanel() {
       </div>
 
       {/* Input */}
-      <div className="border-t p-4">
+      <div className="border-t border-white/10 p-4">
         <div className="flex gap-3">
           <div className="flex-1 relative">
             <textarea
@@ -315,8 +305,8 @@ export function AdvancedChatPanel() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder={`Message ${selectedEndpoint?.name || "Agent System"}...`}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+              placeholder={`Message ${selectedEndpoint?.name || "A2A System"}...`}
+              className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-fuchsia-500/50"
               rows={1}
               style={{ minHeight: "40px", maxHeight: "120px" }}
             />
@@ -325,19 +315,19 @@ export function AdvancedChatPanel() {
           <button
             onClick={sendMessage}
             disabled={!input.trim() || isLoading}
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="rounded-lg bg-fuchsia-500/20 px-4 py-2 text-sm font-medium hover:bg-fuchsia-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
           >
             {isLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="size-4 animate-spin" />
             ) : (
-              <Send className="h-4 w-4" />
+              <Send className="size-4" />
             )}
           </button>
         </div>
         
         {selectedEndpoint && (
-          <div className="mt-2 text-xs text-muted-foreground">
-            Connected to: <span className="text-primary font-medium">{selectedEndpoint.name}</span>
+          <div className="mt-2 text-xs text-zinc-400">
+            Connected to: <span className="text-fuchsia-400">{selectedEndpoint.name}</span>
           </div>
         )}
       </div>
